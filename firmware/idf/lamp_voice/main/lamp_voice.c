@@ -1,11 +1,15 @@
 ﻿/*
- * LAMP-1 语音客户端（ESP32-S3 + V829 PDM 麦克风）
+ * LAMP-1 语音客户端（ESP32-S3 + INMP441 I2S 麦克风）
  *
  * 做的事：
- *   1. 从 PDM 麦克风连续采集 16 kHz / 16 bit 单声道 PCM
+ *   1. 从 I2S 麦克风连续采集 16 kHz / 16 bit 单声道 PCM
  *   2. 用能量做端点检测（VAD）：检测到说话就开一段，静音 800 ms 收尾
  *   3. 边说边通过 WiFi 把 PCM 流给 PC 上的 lamp_server.py（TCP 8766）
  *   4. 把 PC 回来的 HEARD / REPLY 文字逐行打印到串口
+ *
+ * 麦克风接线（标准 I2S，四根线一根都不能少）：
+ *   VDD -> 3V3     GND -> GND     L/R -> GND（左声道）
+ *   SCK -> GPIO16（BCLK）  WS -> GPIO18（LRCLK）  SD -> GPIO17（数据）
  *
  * 串口协议（PC 侧 server/lamp_server.py 实现另一端）：
  *   PCM <字节数>\n + <PCM 字节>
@@ -31,7 +35,7 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 
-#include "driver/i2s_pdm.h"
+#include "driver/i2s_std.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
@@ -43,8 +47,10 @@
 #include "sdkconfig.h"
 
 // ---- 硬件 -----------------------------------------------------------------
-#define PDM_CLK_GPIO 16
-#define PDM_DIN_GPIO 17
+#define MIC_SCK_GPIO 16  // BCLK
+#define MIC_WS_GPIO 18   // LRCLK
+#define MIC_SD_GPIO 17   // 数据（麦克风 -> ESP32）
+#define MIC_GAIN 4       // 24 bit 右移后只有几十 LSB，先放大再算 dBFS
 
 // ---- 音频 -----------------------------------------------------------------
 #define SAMPLE_RATE_HZ 16000
@@ -168,9 +174,9 @@ static void wifi_scan_and_print(void)
 }
 
 // ==========================================================================
-// PDM 麦克风
+// INMP441 麦克风（标准 I2S）
 // ==========================================================================
-static esp_err_t pdm_start(void)
+static esp_err_t mic_start(void)
 {
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan_cfg.dma_desc_num = 8;
@@ -178,25 +184,49 @@ static esp_err_t pdm_start(void)
     esp_err_t err = i2s_new_channel(&chan_cfg, NULL, &s_rx);
     if (err != ESP_OK) return err;
 
-    i2s_pdm_rx_config_t cfg = {
-        .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(SAMPLE_RATE_HZ),
-        .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+    // 32 bit 槽：INMP441 的 24 bit 数据左对齐在 32 bit 里，16 bit 槽会错位成低频漂移。
+    i2s_std_config_t cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE_HZ),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg =
             {
-                .clk = PDM_CLK_GPIO,
-                .din = PDM_DIN_GPIO,
-                .invert_flags = {.clk_inv = false},
+                .mclk = I2S_GPIO_UNUSED,
+                .bclk = MIC_SCK_GPIO,
+                .ws = MIC_WS_GPIO,
+                .dout = I2S_GPIO_UNUSED,
+                .din = MIC_SD_GPIO,
+                .invert_flags = {.mclk_inv = false, .bclk_inv = false, .ws_inv = false},
             },
     };
-    cfg.slot_cfg.slot_mask = I2S_PDM_SLOT_LEFT;
+    cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
+    cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;  // L/R 接 GND = 左声道
 
-    err = i2s_channel_init_pdm_rx_mode(s_rx, &cfg);
+    err = i2s_channel_init_std_mode(s_rx, &cfg);
     if (err != ESP_OK) {
         i2s_del_channel(s_rx);
         s_rx = NULL;
         return err;
     }
     return i2s_channel_enable(s_rx);
+}
+
+// 读一帧并转成 int16：32 bit 槽 -> 右移 16 位 -> 乘增益 -> 限幅。
+// 返回实际样本数；不足一帧就返回 0，调用方跳过这轮。
+static size_t read_frame(int16_t *out)
+{
+    static int32_t raw[FRAME_SAMPLES];
+    size_t got = 0;
+    if (i2s_channel_read(s_rx, raw, sizeof(raw), &got, pdMS_TO_TICKS(200)) != ESP_OK) {
+        return 0;
+    }
+    const size_t n = got / sizeof(int32_t);
+    for (size_t i = 0; i < n; ++i) {
+        int32_t v = (raw[i] >> 16) * MIC_GAIN;
+        if (v > 32767) v = 32767;
+        if (v < -32768) v = -32768;
+        out[i] = (int16_t)v;
+    }
+    return n;
 }
 
 static double frame_db(const int16_t *buf, size_t n, int *peak)
@@ -341,7 +371,8 @@ static void finish_utterance(int fd, size_t frames)
 void app_main(void)
 {
     printf("\n=== LAMP-1 语音客户端 ===\n");
-    printf("麦克风：V829 PDM  CLK=GPIO%d  DATA=GPIO%d  @ %d Hz\n", PDM_CLK_GPIO, PDM_DIN_GPIO, SAMPLE_RATE_HZ);
+    printf("麦克风：INMP441 I2S  SCK=GPIO%d  WS=GPIO%d  SD=GPIO%d  @ %d Hz\n", MIC_SCK_GPIO, MIC_WS_GPIO,
+           MIC_SD_GPIO, SAMPLE_RATE_HZ);
     printf("服务器：%s:%d\n", CONFIG_LAMP_SERVER_HOST, CONFIG_LAMP_SERVER_PORT);
 
     wifi_stack_init();
@@ -357,8 +388,8 @@ void app_main(void)
         wifi_scan_and_print();
     }
 
-    if (pdm_start() != ESP_OK) {
-        printf("!! PDM 初始化失败\n");
+    if (mic_start() != ESP_OK) {
+        printf("!! 麦克风 I2S 初始化失败\n");
         return;
     }
     printf("麦克风已启动，开始监听...\n\n");
@@ -377,9 +408,7 @@ void app_main(void)
 
     while (true) {
         int16_t frame[FRAME_SAMPLES];
-        size_t got = 0;
-        if (i2s_channel_read(s_rx, frame, sizeof(frame), &got, pdMS_TO_TICKS(200)) != ESP_OK ||
-            got < sizeof(frame)) {
+        if (read_frame(frame) < FRAME_SAMPLES) {
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }

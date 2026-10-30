@@ -1,4 +1,4 @@
-# PDM RX：USB-Serial-JTAG 做控制台（板子自带的那个 USB 口）
+# 麦克风 I2S RX：USB-Serial-JTAG 做控制台（板子自带的那个 USB 口）
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 

@@ -1,17 +1,22 @@
 /*
- * V829 PDM 麦克风 bring-up（ESP32-S3 / ESP-IDF 5.4）
+ * INMP441 麦克风 bring-up（ESP32-S3 / ESP-IDF 5.4）
  *
- * 接线（与用户提供的表一致）：
- *   V829 VDD  -> 3V3      （严禁 5V）
- *   V829 GND  -> GND
- *   V829 CLK  -> GPIO16   （PDM 时钟，由 ESP32 输出）
- *   V829 DATA -> GPIO17   （PDM 数据，麦克风输出）
+ * 接线（标准 I2S，四根线一根都不能少）：
+ *   INMP441 VDD -> 3V3     （严禁 5V）
+ *   INMP441 GND -> GND
+ *   INMP441 L/R -> GND     （接地 = 左声道）
+ *   INMP441 SCK -> GPIO16  （BCLK 位时钟，由 ESP32 输出）
+ *   INMP441 WS  -> GPIO18  （LRCLK 声道时钟，由 ESP32 输出）
+ *   INMP441 SD  -> GPIO17  （数据，麦克风输出）
  *
- * 这个固件不点灯、不跑红外，只做一件事：把 PDM 流解成 16 kHz PCM，
+ * 这个固件不点灯、不跑红外，只做一件事：把 I2S 流解成 16 kHz PCM，
  * 每 100 ms 打印一次电平，并识别拍手/敲桌子这类瞬态。
  *
- * 为什么不能用板上的 MicroPython：machine.I2S 只支持标准 I2S 主模式，
- * 没有 PDM RX；PDM 需要 1 MHz 量级的时钟和抽取滤波，只能走 IDF 的 i2s_pdm 驱动。
+ * INMP441 输出 24 bit、在 32 bit 槽里左对齐，且要求 WS 周期 64 BCLK。
+ * 用 16 bit 槽只有 32 BCLK，数据会错位成低频漂移，所以这里固定 32 bit 槽，
+ * 读到 int32 后右移 16 位取高 16 bit，再乘 MIC_GAIN。
+ *
+ * 目录名 pdm_probe 是历史遗留（上一版接的是 PDM 麦克风），现在探的是标准 I2S。
  *
  * 构建：
  *   call C:\esp\v5.4.4\esp-idf\export.bat
@@ -24,7 +29,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "driver/i2s_pdm.h"
+#include "driver/i2s_std.h"
 #include "esp_chip_info.h"
 #include "esp_err.h"
 #include "esp_idf_version.h"
@@ -33,8 +38,10 @@
 #include "freertos/task.h"
 
 // ---- 硬件 -----------------------------------------------------------------
-#define PDM_CLK_GPIO 16
-#define PDM_DIN_GPIO 17
+#define MIC_SCK_GPIO 16  // BCLK
+#define MIC_WS_GPIO 18   // LRCLK
+#define MIC_SD_GPIO 17   // 数据（麦克风 -> ESP32）
+#define MIC_GAIN 4       // 24 bit 右移后只有几十 LSB，先放大再判电平
 
 // ---- 采样 -----------------------------------------------------------------
 #define SAMPLE_RATE_HZ 16000
@@ -91,7 +98,7 @@ static void build_bar(double db, char *out, size_t len)
     out[len - 1] = '\0';
 }
 
-static esp_err_t pdm_start(bool right_slot)
+static esp_err_t mic_start(bool right_slot)
 {
     if (s_rx != NULL) {
         i2s_channel_disable(s_rx);
@@ -99,7 +106,7 @@ static esp_err_t pdm_start(bool right_slot)
         s_rx = NULL;
     }
 
-    // PDM RX 只能挂在 I2S0 上；接收方向只需要 RX 句柄。
+    // 接收方向只需要 RX 句柄；I2S0 做主模式，自己产生 BCLK/WS。
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan_cfg.dma_desc_num = 8;
     chan_cfg.dma_frame_num = FRAME_SAMPLES;
@@ -109,22 +116,28 @@ static esp_err_t pdm_start(bool right_slot)
         return err;
     }
 
-    i2s_pdm_rx_config_t cfg = {
-        .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(SAMPLE_RATE_HZ),
-        // PDM 模式下数据位宽固定 16 bit；单麦用 MONO + 一个 slot。
-        .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+    i2s_std_config_t cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE_HZ),
+        // 32 bit 槽 + MONO：每个采样占左右两个 32 bit 槽，只取其中一边。
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
-            .clk = PDM_CLK_GPIO,
-            .din = PDM_DIN_GPIO,
+            .mclk = I2S_GPIO_UNUSED,
+            .bclk = MIC_SCK_GPIO,
+            .ws = MIC_WS_GPIO,
+            .dout = I2S_GPIO_UNUSED,
+            .din = MIC_SD_GPIO,
             .invert_flags = {
-                .clk_inv = false,
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv = false,
             },
         },
     };
-    // 模块的 SEL 脚决定它在时钟的哪半周期出数；接错边就是一片静音或噪声。
-    cfg.slot_cfg.slot_mask = right_slot ? I2S_PDM_SLOT_RIGHT : I2S_PDM_SLOT_LEFT;
+    cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
+    // L/R 接 GND = 左声道，接 3V3 = 右声道；接错边就是一片静音。
+    cfg.slot_cfg.slot_mask = right_slot ? I2S_STD_SLOT_RIGHT : I2S_STD_SLOT_LEFT;
 
-    err = i2s_channel_init_pdm_rx_mode(s_rx, &cfg);
+    err = i2s_channel_init_std_mode(s_rx, &cfg);
     if (err != ESP_OK) {
         i2s_del_channel(s_rx);
         s_rx = NULL;
@@ -137,6 +150,31 @@ static esp_err_t pdm_start(bool right_slot)
         s_rx = NULL;
     }
     return err;
+}
+
+// 读一帧并转成 int16：32 bit 槽 -> 右移 16 位 -> 乘增益 -> 限幅。
+static size_t read_frame(int16_t *out, size_t max_samples)
+{
+    static int32_t raw[FRAME_SAMPLES];
+    size_t got = 0;
+    if (i2s_channel_read(s_rx, raw, sizeof(raw), &got, pdMS_TO_TICKS(200)) != ESP_OK) {
+        return 0;
+    }
+    size_t n = got / sizeof(int32_t);
+    if (n > max_samples) {
+        n = max_samples;
+    }
+    for (size_t i = 0; i < n; ++i) {
+        int32_t v = (raw[i] >> 16) * MIC_GAIN;
+        if (v > 32767) {
+            v = 32767;
+        }
+        if (v < -32768) {
+            v = -32768;
+        }
+        out[i] = (int16_t)v;
+    }
+    return n;
 }
 
 static void analyse(const int16_t *buf, size_t n, double *out_db, int *out_peak)
@@ -169,33 +207,32 @@ void app_main(void)
     esp_chip_info(&chip);
 
     printf("\n");
-    printf("=== V829 PDM mic probe ===\n");
+    printf("=== INMP441 I2S mic probe ===\n");
     printf("idf     : %s\n", esp_get_idf_version());
     printf("chip    : ESP32-S3 rev v%d.%d, %d core(s)\n", chip.revision / 100, chip.revision % 100, chip.cores);
-    printf("wiring  : VDD=3V3 GND=GND CLK=GPIO%d DATA=GPIO%d\n", PDM_CLK_GPIO, PDM_DIN_GPIO);
-    printf("pcm     : %d Hz mono 16-bit | pdm clk = %d Hz (64 x fs)\n", SAMPLE_RATE_HZ, SAMPLE_RATE_HZ * 64);
+    printf("wiring  : VDD=3V3 GND=GND L/R=GND SCK=GPIO%d WS=GPIO%d SD=GPIO%d\n", MIC_SCK_GPIO, MIC_WS_GPIO,
+           MIC_SD_GPIO);
+    printf("pcm     : %d Hz mono 16-bit | bclk = %d Hz (32 bit x 2 ch)\n", SAMPLE_RATE_HZ, SAMPLE_RATE_HZ * 64);
     printf("legend  : 0 dBFS = full scale, -70 dBFS = quiet room floor\n\n");
 
-    esp_err_t err = pdm_start(s_right_slot);
+    esp_err_t err = mic_start(s_right_slot);
     if (err != ESP_OK) {
         printf("!! i2s init failed: %s\n", esp_err_to_name(err));
         return;
     }
-    printf("I2S PDM RX started (left slot). Speak, clap, or tap the table...\n\n");
+    printf("I2S std RX started (left slot). Speak, clap, or tap the table...\n\n");
 
     static int16_t buf[FRAME_SAMPLES];
     uint32_t report_in = 0;
 
     while (true) {
-        size_t got = 0;
-        err = i2s_channel_read(s_rx, buf, sizeof(buf), &got, pdMS_TO_TICKS(200));
-        if (err != ESP_OK || got < sizeof(int16_t) * 16) {
-            printf("!! i2s read failed: %s (got %u bytes)\n", esp_err_to_name(err), (unsigned)got);
+        const size_t n = read_frame(buf, FRAME_SAMPLES);
+        if (n < 16) {
+            printf("!! i2s read returned %u samples\n", (unsigned)n);
             vTaskDelay(pdMS_TO_TICKS(500));
             continue;
         }
 
-        const size_t n = got / sizeof(int16_t);
         s_frames++;
 
         if (s_frames == 1) {
@@ -232,7 +269,7 @@ void app_main(void)
                 s_right_slot = !s_right_slot;
                 printf("\n!! no signal for %u ms (peak %d). Switching to %s slot and retrying...\n\n",
                        (unsigned)s_dead_ms, peak, s_right_slot ? "right" : "left");
-                if (pdm_start(s_right_slot) != ESP_OK) {
+                if (mic_start(s_right_slot) != ESP_OK) {
                     printf("!! re-init failed\n");
                 }
                 s_dead_ms = 0;
