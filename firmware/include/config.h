@@ -30,7 +30,7 @@
 #ifndef LAMP_HAS_SERVOS
 #define LAMP_HAS_SERVOS 1
 #endif
-// V829 PDM microphone + LAN ASR/LLM link (tasks 1-3 of the voice spike).
+// INMP441 I2S microphone + LAN ASR/LLM link (tasks 1-3 of the voice spike).
 #ifndef LAMP_HAS_VOICE
 #define LAMP_HAS_VOICE 1
 #endif

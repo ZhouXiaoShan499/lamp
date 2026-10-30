@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """LAMP-1 LAN voice bridge.
 
-    ESP32 (V829 PDM mic) --WebSocket--> this server --> Vosk ASR --> Ollama
+    ESP32 (INMP441 I2S mic) --WebSocket--> this server --> Vosk ASR --> Ollama
                                                           |
     ESP32 Serial <--WebSocket text (reply) <--------------+
 
