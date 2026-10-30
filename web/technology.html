@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#080907">
+<title>技术 · LAMP—1 工程笔记</title>
+<meta name="description" content="LAMP—1 的系统架构、照明与云台参数、红外学习逻辑、离线定时，以及当前工程验证边界。">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+<link rel="stylesheet" href="assets/pages.css">
+<meta property="og:type" content="website">
+<meta property="og:title" content="技术 · LAMP—1">
+<meta property="og:description" content="把复杂，藏在光后面。LAMP—1 工程笔记与规格。">
+<meta property="og:image" content="assets/og.jpg">
+<script>document.documentElement.classList.add('js');</script>
+<script src="assets/site.js" defer></script>
+</head>
+<body class="site-page page-technology" id="top">
+<a class="site-skip" href="#main">跳到主要内容</a>
+
+<header class="site-header" data-site-header>
+  <div class="site-header__inner">
+    <a class="site-brand" href="index.html" aria-label="LAMP—1 首页">
+      <span class="site-brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="8.2" r="4.4" stroke="currentColor" stroke-width="1.35"/>
+          <path d="M12 12.7v5.5M8.6 20.2h6.8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
+          <path d="M9.8 6.7c.7-.9 2.1-1.2 3.1-.6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity=".55"/>
+        </svg>
+      </span>
+      <span class="site-brand__name">LAMP—1</span>
+      <span class="site-brand__tag">会回应的光</span>
+    </a>
+
+    <nav class="site-nav" aria-label="主导航">
+      <a href="index.html">概览</a>
+      <a href="product.html">产品</a>
+      <a href="simulator.html">数字样机</a>
+      <a href="technology.html" aria-current="page">技术</a>
+    </nav>
+
+    <div class="site-actions">
+      <span class="site-status"><i aria-hidden="true"></i>CONCEPT 001</span>
+      <a class="site-cta" href="simulator.html">
+        体验灯光
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9M8.5 3.5 13 8l-4.5 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <button class="site-menu-toggle" type="button" data-menu-toggle aria-expanded="false" aria-controls="siteMenu" aria-label="打开菜单">
+        <span class="burger" aria-hidden="true"></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="site-menu" id="siteMenu" hidden>
+    <div class="site-menu__inner">
+      <nav class="site-menu__nav" aria-label="移动端导航">
+        <a href="index.html">概览 <span>01 / OVERVIEW</span></a>
+        <a href="product.html">产品 <span>02 / THE OBJECT</span></a>
+        <a href="simulator.html">数字样机 <span>03 / LIGHT FIELD</span></a>
+        <a href="technology.html" aria-current="page">技术 <span>04 / ENGINEERING</span></a>
+      </nav>
+      <div class="site-menu__foot">
+        <p>一盏会回应的可动台灯。<br>概念样机 001 · 非量产</p>
+        <a class="site-button site-button--primary" href="simulator.html">打开数字样机
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9M8.5 3.5 13 8l-4.5 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main" tabindex="-1">
+  <!-- ------------------------------------------------------------- tech hero -->
+  <section class="tech-hero" aria-labelledby="techTitle">
+    <div class="tech-hero__bg" aria-hidden="true"></div>
+    <div class="site-wrap tech-hero__inner">
+      <div class="tech-hero__copy">
+        <p class="site-kicker">04 / ENGINEERING NOTES</p>
+        <h1 class="tech-hero__title" id="techTitle">把复杂，<br><span>藏在光后面。</span></h1>
+        <p class="site-lead">一盏小台灯要同时完成照明、双轴动作、红外学习和定时。LAMP—1 把能并行的放进单循环，把不能妥协的写进边界。</p>
+        <div class="tech-hero__indices">
+          <div><span>MCU</span><strong>ESP32-S3</strong></div>
+          <div><span>CARRIER</span><strong>38<small>kHz</small></strong></div>
+          <div><span>DIM</span><strong>12<small>bit</small></strong></div>
+          <div><span>PIVOT</span><strong>2<small>axis</small></strong></div>
+        </div>
+        <div class="tech-hero__links">
+          <a class="site-button site-button--primary" href="#specs">直接看规格
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a class="site-text-link" href="#status">工程验证边界
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9M8.5 3.5 13 8l-4.5 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <figure class="tech-hero__media" data-reveal>
+        <div class="tech-photo">
+          <img src="assets/detail-head.webp" width="1400" height="1000" loading="lazy" alt="LAMP—1 灯头结构特写，光扩散板与金属灯壳">
+          <span class="tech-corner tech-corner--tl" aria-hidden="true"></span>
+          <span class="tech-corner tech-corner--tr" aria-hidden="true"></span>
+          <span class="tech-corner tech-corner--bl" aria-hidden="true"></span>
+          <span class="tech-corner tech-corner--br" aria-hidden="true"></span>
+          <span class="tech-photo__label tech-photo__label--a">PMMA DIFFUSER / 30° SHIELD</span>
+          <span class="tech-photo__label tech-photo__label--b">PIVOT / MG90S</span>
+          <span class="tech-photo__axis" aria-hidden="true">FIG. 01</span>
+        </div>
+        <figcaption>组装前的灯头总成 / 概念渲染</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ system map -->
+  <section class="site-section light-band system-section" aria-labelledby="systemTitle">
+    <div class="site-wrap">
+      <div class="product-section-head" data-reveal>
+        <div>
+          <p class="site-kicker">01 / SYSTEM MAP</p>
+          <h2 class="site-title" id="systemTitle">一盏灯的<br>神经系统。</h2>
+        </div>
+        <p class="site-lead site-lead--small">照明、红外、云台和定时共享一个非阻塞主循环。输入、反馈与电源预算在固件里被放在同一张图上考虑。</p>
+      </div>
+
+      <div class="system-map" data-reveal tabindex="0" role="region" aria-label="LAMP—1 系统架构图，小屏幕可左右滚动">
+        <div class="system-map__hint">← 横向滑动查看 →</div>
+        <svg viewBox="0 0 1200 620" role="img" aria-labelledby="sysMapTitle sysMapDesc">
+          <title id="sysMapTitle">LAMP—1 系统架构图</title>
+          <desc id="sysMapDesc">ESP32-S3 主控连接三个物理按键、红外接收器与 OLED 显示，输出双色温 LED、两只舵机和红外发射器，并使用 NVS 与 LittleFS 存储数据。</desc>
+          <defs>
+            <marker id="sysDot" viewBox="0 0 8 8" refX="4" refY="4" markerWidth="5" markerHeight="5">
+              <circle cx="4" cy="4" r="2.5" fill="#9b845f"/>
+            </marker>
+          </defs>
+
+          <g fill="none" stroke="#a79880" stroke-width="1">
+            <path d="M290 140H370Q388 140 388 158V256H420"/>
+            <path d="M290 245H420"/>
+            <path d="M290 350H370Q388 350 388 332V306H420"/>
+            <path d="M780 240H825Q842 240 842 222V124H908"/>
+            <path d="M780 285H908"/>
+            <path d="M780 330H825Q842 330 842 348V367H908"/>
+            <path d="M780 375H908"/>
+            <path d="M600 435V470"/>
+            <path d="M520 470V510H510"/>
+            <path d="M680 470V510H690"/>
+          </g>
+
+          <g fill="#9b845f">
+            <circle cx="290" cy="140" r="2.4"/><circle cx="290" cy="245" r="2.4"/><circle cx="290" cy="350" r="2.4"/>
+            <circle cx="908" cy="124" r="2.4"/><circle cx="908" cy="285" r="2.4"/><circle cx="908" cy="367" r="2.4"/><circle cx="908" cy="375" r="2.4"/>
+            <circle cx="600" cy="435" r="2.4"/>
+          </g>
+
+          <g fill="#3e382e" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace">
+            <text x="70" y="63" font-size="10" letter-spacing="2.5" fill="#91816a">INPUTS &amp; UI / 交互</text>
+            <text x="424" y="63" font-size="10" letter-spacing="2.5" fill="#91816a">CONTROLLER / 主控</text>
+            <text x="909" y="63" font-size="10" letter-spacing="2.5" fill="#91816a">OUTPUTS / 输出</text>
+            <text x="424" y="526" font-size="10" letter-spacing="2.5" fill="#91816a">PERSISTENCE / 持久化</text>
+          </g>
+
+          <!-- inputs -->
+          <g>
+            <rect x="70" y="104" width="220" height="72" rx="8" fill="rgba(255,255,255,.32)" stroke="#a6977d"/>
+            <text x="89" y="132" fill="#8d7e66" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" letter-spacing="1.1">3 × PHYSICAL KEYS</text>
+            <text x="89" y="155" fill="#3e372d" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="13">模式 / 灯光 / 学习</text>
+
+            <rect x="70" y="209" width="220" height="72" rx="8" fill="rgba(255,255,255,.32)" stroke="#a6977d"/>
+            <text x="89" y="237" fill="#8d7e66" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" letter-spacing="1.1">IR RECEIVER / 38 kHz</text>
+            <text x="89" y="260" fill="#3e372d" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="13">原始码捕获 · 20—1024 段</text>
+
+            <rect x="70" y="314" width="220" height="72" rx="8" fill="rgba(255,255,255,.32)" stroke="#a6977d"/>
+            <text x="89" y="342" fill="#8d7e66" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" letter-spacing="1.1">0.96″ OLED / I2C</text>
+            <text x="89" y="365" fill="#3e372d" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="13">状态 / 槽位 / 倒计时</text>
+          </g>
+
+          <!-- MCU -->
+          <g>
+            <rect x="420" y="136" width="360" height="300" rx="14" fill="rgba(255,255,255,.4)" stroke="#655b4c" stroke-width="1.2"/>
+            <rect x="438" y="154" width="324" height="55" rx="5" fill="none" stroke="#b6a68a" stroke-dasharray="2 4"/>
+            <text x="600" y="178" text-anchor="middle" fill="#3b342b" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="9" letter-spacing="1.6">ESP32-S3-WROOM-1-N4R2</text>
+            <text x="600" y="197" text-anchor="middle" fill="#897b65" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="7" letter-spacing="1">4 MB FLASH / 2 MB PSRAM</text>
+
+            <g font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" fill="#4f4638" letter-spacing=".6">
+              <text x="451" y="247">01</text><text x="485" y="247">LIGHTING</text><text x="704" y="247" text-anchor="end" fill="#91816a">4 kHz · 12-bit</text>
+              <text x="451" y="283">02</text><text x="485" y="283">MOTION</text><text x="704" y="283" text-anchor="end" fill="#91816a">2-AXIS · INTERLOCK</text>
+              <text x="451" y="319">03</text><text x="485" y="319">IR ENGINE</text><text x="704" y="319" text-anchor="end" fill="#91816a">RMT · 38 kHz</text>
+              <text x="451" y="355">04</text><text x="485" y="355">TIMERS</text><text x="704" y="355" text-anchor="end" fill="#91816a">8 TASK SLOTS</text>
+              <text x="451" y="391">05</text><text x="485" y="391">UI / STORE</text><text x="704" y="391" text-anchor="end" fill="#91816a">NON-BLOCKING</text>
+            </g>
+            <g stroke="#c4b59c">
+              <path d="M451 229H704M451 265H704M451 301H704M451 337H704M451 373H704"/>
+            </g>
+            <text x="600" y="420" text-anchor="middle" fill="#8d7e66" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="7" letter-spacing="1">SINGLE LOOP / NO BLOCKING DELAY</text>
+          </g>
+
+          <!-- outputs -->
+          <g>
+            <rect x="908" y="90" width="222" height="68" rx="8" fill="rgba(255,255,255,.32)" stroke="#a6977d"/>
+            <text x="926" y="117" fill="#8d7e66" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" letter-spacing="1.1">DUAL-CCT LED</text>
+            <text x="926" y="139" fill="#3e372d" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="13">3000K + 6000K 混光</text>
+
+            <rect x="908" y="169" width="222" height="60" rx="8" fill="rgba(255,255,255,.32)" stroke="#a6977d"/>
+            <text x="926" y="194" fill="#8d7e66" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" letter-spacing="1.1">SERVO / TILT</text>
+            <text x="926" y="214" fill="#3e372d" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="13">10—55°</text>
+
+            <rect x="908" y="240" width="222" height="60" rx="8" fill="rgba(255,255,255,.32)" stroke="#a6977d"/>
+            <text x="926" y="265" fill="#8d7e66" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" letter-spacing="1.1">SERVO / YAW</text>
+            <text x="926" y="285" fill="#3e372d" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="13">±60°</text>
+
+            <rect x="908" y="311" width="222" height="60" rx="8" fill="rgba(255,255,255,.32)" stroke="#a6977d"/>
+            <text x="926" y="336" fill="#8d7e66" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" letter-spacing="1.1">IR EMITTER / 940 nm</text>
+            <text x="926" y="356" fill="#3e372d" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="13">×2 重复发射</text>
+
+            <rect x="908" y="382" width="222" height="48" rx="8" fill="rgba(255,255,255,.2)" stroke="#bcae97" stroke-dasharray="3 4"/>
+            <text x="926" y="411" fill="#7f715b" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" letter-spacing="1">BUZZER / OPTIONAL</text>
+          </g>
+
+          <!-- storage -->
+          <g>
+            <rect x="424" y="510" width="154" height="66" rx="8" fill="rgba(255,255,255,.32)" stroke="#a6977d"/>
+            <text x="441" y="537" fill="#8d7e66" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" letter-spacing="1.1">NVS</text>
+            <text x="441" y="558" fill="#3e372d" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="12">任务 / 校准 / 配置</text>
+            <rect x="606" y="510" width="154" height="66" rx="8" fill="rgba(255,255,255,.32)" stroke="#a6977d"/>
+            <text x="623" y="537" fill="#8d7e66" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="8" letter-spacing="1.1">LittleFS</text>
+            <text x="623" y="558" fill="#3e372d" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="12">红外码库 / 日志</text>
+          </g>
+
+          <g fill="#9d8e76" font-family="'SFMono-Regular','Cascadia Mono',Consolas,monospace" font-size="7" letter-spacing=".5">
+            <text x="70" y="588">LAMP—1 / SYSTEM MAP v0.1</text>
+            <text x="1130" y="588" text-anchor="end">CONCEPT ARCHITECTURE</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- -------------------------------------------------------------- choices -->
+  <section class="site-section tech-choices" aria-labelledby="choicesTitle">
+    <div class="site-wrap">
+      <div class="product-section-head" data-reveal>
+        <div>
+          <p class="site-kicker">02 / ENGINEERING CHOICES</p>
+          <h2 class="site-title" id="choicesTitle">每个功能，<br>都有一道边界。</h2>
+        </div>
+        <p class="site-lead site-lead--small">不是把功能叠在一起，而是让它们共享同一套时序、功率和噪声预算。下面四件事决定了 LAMP—1 的性格。</p>
+      </div>
+
+      <div class="tech-choice-grid">
+        <article class="tech-choice-card" data-reveal>
+          <div class="tech-choice-card__head"><span>01</span><span>LIGHT</span></div>
+          <h3>两路白光，<br>五个校准点。</h3>
+          <p>3000K 与 6000K 两路 LED 按比例混色，用 Gamma 2.2 曲线过渡。色温不是屏幕上的滤镜，而是灯珠真实的输出比例。</p>
+          <div class="tech-choice-card__data">
+            <span>4 kHz PWM</span><span>12 bit</span><span>Ra≥90</span>
+          </div>
+        </article>
+        <article class="tech-choice-card" data-reveal style="--reveal-delay:.06s">
+          <div class="tech-choice-card__head"><span>02</span><span>MOTION</span></div>
+          <h3>每一步，<br>都有边界。</h3>
+          <p>软件限位叠在机械挡块之前。两轴不同时运动，动作时灯光降到 70%，到位 350ms 后松开舵机。</p>
+          <div class="tech-choice-card__data">
+            <span>±60° YAW</span><span>10—55° TILT</span><span>75°/s</span>
+          </div>
+        </article>
+        <article class="tech-choice-card" id="infrared" data-reveal style="--reveal-delay:.12s">
+          <div class="tech-choice-card__head"><span>03</span><span>INFRARED</span></div>
+          <h3>不猜协议，<br>只记住信号。</h3>
+          <p>捕获原始 mark/space，两次一致才保存。LIR1 文件带头部、版本和 CRC32；断电、截断或旧固件文件都会被拒绝。</p>
+          <div class="tech-choice-card__data">
+            <span>20—1024 EDGES</span><span>16 SLOTS</span><span>CRC32</span>
+          </div>
+        </article>
+        <article class="tech-choice-card" data-reveal style="--reveal-delay:.18s">
+          <div class="tech-choice-card__head"><span>04</span><span>TIME</span></div>
+          <h3>不联网，<br>也能倒数。</h3>
+          <p>没有 RTC 或网络时，不承诺每晚固定时间，只提供 24 小时以内的倒计时。断电期间错过的一次性提醒会补触发。</p>
+          <div class="tech-choice-card__data">
+            <span>8 TASKS</span><span>10s—24h</span><span>OFFLINE</span>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- specs -->
+  <section class="site-section light-band spec-section" id="specs" aria-labelledby="specsTitle">
+    <div class="site-wrap">
+      <div class="product-section-head" data-reveal>
+        <div>
+          <p class="site-kicker">03 / SPECIFICATION</p>
+          <h2 class="site-title" id="specsTitle">写在纸上的<br>那部分。</h2>
+        </div>
+        <p class="site-lead site-lead--small">这些数值来自概念设计、器件手册和工程计算器输出。标注“设计目标”的条目，需要在工程样机上逐一复测。</p>
+      </div>
+
+      <div class="spec-grid" data-reveal>
+        <section class="spec-group" aria-labelledby="specLight">
+          <div class="spec-group__head"><span>01</span><h3 id="specLight">照明 / LIGHTING</h3></div>
+          <dl class="spec-list">
+            <div><dt>光源</dt><dd>双通道 3000K + 6000K</dd></div>
+            <div><dt>色温</dt><dd>2700—6500K · 5 档</dd></div>
+            <div><dt>整灯功率</dt><dd>5.0 W</dd></div>
+            <div><dt>中心照度</dt><dd>≥500 lx @40cm <em>设计目标</em></dd></div>
+            <div><dt>显色指数</dt><dd>Ra ≥90 <em>设计目标</em></dd></div>
+            <div><dt>调光</dt><dd>4 kHz · 12-bit · Gamma 2.2</dd></div>
+          </dl>
+        </section>
+
+        <section class="spec-group" aria-labelledby="specMotion">
+          <div class="spec-group__head"><span>02</span><h3 id="specMotion">运动 / MOTION</h3></div>
+          <dl class="spec-list">
+            <div><dt>俯仰</dt><dd>10—55° · 初始 30°</dd></div>
+            <div><dt>转向</dt><dd>±60° · 初始 0°</dd></div>
+            <div><dt>动作曲线</dt><dd>75°/s · S 曲线缓动</dd></div>
+            <div><dt>舵机</dt><dd>MG90S / MG996R</dd></div>
+            <div><dt>电源协同</dt><dd>双轴互锁 · 动作时亮度 ×0.7</dd></div>
+            <div><dt>释放策略</dt><dd>到位 350ms 后断开 PWM</dd></div>
+          </dl>
+        </section>
+
+        <section class="spec-group" aria-labelledby="specIr">
+          <div class="spec-group__head"><span>03</span><h3 id="specIr">红外 / INFRARED</h3></div>
+          <dl class="spec-list">
+            <div><dt>载波</dt><dd>38 kHz</dd></div>
+            <div><dt>捕获范围</dt><dd>20—1024 edge pairs</dd></div>
+            <div><dt>一致性校验</dt><dd>双次捕获差异 ≤5%</dd></div>
+            <div><dt>存储格式</dt><dd>LIR1 · CRC32 · LittleFS</dd></div>
+            <div><dt>槽位</dt><dd>16 槽 / 单槽最大 1024 段</dd></div>
+            <div><dt>兼容性</dt><dd>待实测 <em>五品牌 × 30 次</em></dd></div>
+          </dl>
+        </section>
+
+        <section class="spec-group" aria-labelledby="specSystem">
+          <div class="spec-group__head"><span>04</span><h3 id="specSystem">系统 / SYSTEM</h3></div>
+          <dl class="spec-list">
+            <div><dt>主控</dt><dd>ESP32-S3 N4R2</dd></div>
+            <div><dt>存储</dt><dd>4 MB Flash / 2 MB PSRAM</dd></div>
+            <div><dt>显示</dt><dd>0.96″ OLED · I2C <em>Plus/Pro</em></dd></div>
+            <div><dt>定时</dt><dd>8 任务 · 10s—24h</dd></div>
+            <div><dt>时基</dt><dd>SNTP / 可选 RTC / 离线倒计时</dd></div>
+            <div><dt>固件</dt><dd>单循环 · 非阻塞 · OTA 预留</dd></div>
+          </dl>
+        </section>
+
+        <section class="spec-group" aria-labelledby="specElectrical">
+          <div class="spec-group__head"><span>05</span><h3 id="specElectrical">电气 / POWER</h3></div>
+          <dl class="spec-list">
+            <div><dt>输入</dt><dd>5V 2A（Basic/Plus）· 4A（Pro）</dd></div>
+            <div><dt>典型电流</dt><dd>900 mA（不含动作）</dd></div>
+            <div><dt>峰值设计</dt><dd>1646 mA（Pro · 互锁后）</dd></div>
+            <div><dt>LED 热设计</dt><dd>满载壳温 52.8℃ @30℃ 环境</dd></div>
+            <div><dt>红外发射</dt><dd>2 × 940nm · 38kHz · 双管并联</dd></div>
+            <div><dt>安全</dt><dd>未认证 <em>概念样机</em></dd></div>
+          </dl>
+        </section>
+
+        <section class="spec-group" aria-labelledby="specNotes">
+          <div class="spec-group__head"><span>06</span><h3 id="specNotes">测量与已知边界</h3></div>
+          <dl class="spec-list">
+            <div><dt>照度</dt><dd>40cm 中心 ≥500 lx · 待实测</dd></div>
+            <div><dt>频闪</dt><dd>波动深度 &lt;5% · 待实测</dd></div>
+            <div><dt>噪声</dt><dd>动作 &lt;45 dB(A) @1m · 目标</dd></div>
+            <div><dt>寿命</dt><dd>动作 ≥20,000 次 · 目标</dd></div>
+            <div><dt>认证</dt><dd>CCC / CE · 尚未启动</dd></div>
+            <div><dt>外观尺寸</dt><dd>待结构样机冻结</dd></div>
+          </dl>
+        </section>
+      </div>
+
+      <p class="spec-footnote">规格为概念阶段设计目标，不作为量产承诺。完整工程资料与验证记录以仓库文档为准。</p>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------------------- status -->
+  <section class="site-section tech-status" id="status" aria-labelledby="statusTitle">
+    <div class="site-wrap">
+      <div class="product-section-head" data-reveal>
+        <div>
+          <p class="site-kicker">04 / STATUS</p>
+          <h2 class="site-title" id="statusTitle">我们还没做完。</h2>
+        </div>
+        <p class="site-lead site-lead--small">概念站不应该假装一切已验证。下面是 LAMP—1 目前真实的工程状态——哪些已经跑通，哪些还不知道。</p>
+      </div>
+
+      <div class="status-board" data-reveal>
+        <div class="status-column">
+          <div class="status-column__head"><span class="status-mark status-mark--done"></span>已建立 / BUILT</div>
+          <ul>
+            <li><span>01</span>需求边界与产品概念文档</li>
+            <li><span>02</span>ESP32-S3 固件骨架与模块划分</li>
+            <li><span>03</span>面包板按键 → 照明点亮通路</li>
+            <li><span>04</span>IR 存储格式自检 9 / 9 通过</li>
+          </ul>
+        </div>
+        <div class="status-column">
+          <div class="status-column__head"><span class="status-mark status-mark--open"></span>待验证 / OPEN</div>
+          <ul>
+            <li><span>01</span>真实空调品牌的兼容性矩阵</li>
+            <li><span>02</span>LED 热、舵机噪声与结构寿命</li>
+            <li><span>03</span>照度、频闪与光学均匀度</li>
+            <li><span>04</span>用户是否会长期使用红外与动作</li>
+          </ul>
+        </div>
+        <div class="status-column">
+          <div class="status-column__head"><span class="status-mark status-mark--no"></span>首版不做 / NOT YET</div>
+          <ul>
+            <li><span>01</span>手机 App 与云端码库</li>
+            <li><span>02</span>摄像头 / 坐姿识别 / 全屋组网</li>
+            <li><span>03</span>电池供电与连续语音</li>
+            <li><span>04</span>订阅服务</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="status-quote">
+        <span>PRINCIPLE / 01</span>
+        <p>先红外，后学习；先刚需，后情绪；先验证，后扩展。</p>
+        <a class="site-text-link" href="product.html">回到产品
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9M8.5 3.5 13 8l-4.5 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------- tech end -->
+  <section class="tech-end">
+    <div class="site-wrap tech-end__inner">
+      <div class="tech-end__copy" data-reveal>
+        <p class="site-kicker">TRY THE LOOP</p>
+        <h2>参数是冷的。<br>调一次光，才是真的。</h2>
+        <p>数字样机把色温、亮度、云台和定时都接进了同一个实时页面。去转一下灯头，看看它如何回应。</p>
+        <div class="site-actions-row">
+          <a class="site-button site-button--primary" href="simulator.html">打开数字样机
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9M8.5 3.5 13 8l-4.5 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a class="site-button site-button--ghost" href="product.html">回到产品</a>
+        </div>
+      </div>
+      <div class="tech-end__graphic" aria-hidden="true">
+        <span class="tech-end__ring"></span>
+        <span class="tech-end__core"></span>
+        <span class="tech-end__label">LOOP<br>READY</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <div class="site-footer__top">
+      <div class="footer-brand">
+        <a class="site-brand" href="index.html" aria-label="LAMP—1 首页">
+          <span class="site-brand__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="8.2" r="4.4" stroke="currentColor" stroke-width="1.35"/>
+              <path d="M12 12.7v5.5M8.6 20.2h6.8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="site-brand__name">LAMP—1</span>
+        </a>
+        <div class="footer-brand-copy">
+          <p>一盏会动的桌面台灯。双轴、双色温，以及一束不联网的智能。</p>
+          <div class="footer-brand-links">
+            <a class="site-text-link" href="simulator.html">打开数字样机
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9M8.5 3.5 13 8l-4.5 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-col">
+        <h3>浏览 / Explore</h3>
+        <a href="index.html">概览 <span class="arrow">↗</span></a>
+        <a href="product.html">产品 <span class="arrow">↗</span></a>
+        <a href="simulator.html">数字样机 <span class="arrow">↗</span></a>
+        <a href="technology.html">技术 <span class="arrow">↗</span></a>
+        <a href="technology.html#specs">规格 <span class="arrow">↗</span></a>
+      </div>
+
+      <div class="footer-note">
+        <h3>项目状态 / Status</h3>
+        <span class="footer-prototype"><i aria-hidden="true"></i>概念样机 · 非量产</span>
+        <p>LAMP—1 处于概念设计与 MVP 验证阶段。页面中的照度、成功率与兼容性数据为设计目标，最终以工程实测为准。</p>
+      </div>
+    </div>
+
+    <div class="footer-wordmark" aria-hidden="true">LAMP—1</div>
+
+    <div class="site-footer__bottom">
+      <div class="meta-set">
+        <span>© <span data-year>2026</span> LAMP—1</span>
+        <span>DESK OBJECT / CONCEPT 001</span>
+      </div>
+      <div class="meta-set">
+        <span>让光，有回应。</span>
+        <a href="#top">回到顶部 ↑</a>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
