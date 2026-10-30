@@ -1,4 +1,4 @@
-/*
+﻿/*
  * LAMP-1 语音客户端（ESP32-S3 + V829 PDM 麦克风）
  *
  * 做的事：
@@ -220,7 +220,7 @@ static double frame_db(const int16_t *buf, size_t n, int *peak)
 // ==========================================================================
 // TCP 客户端
 // ==========================================================================
-static int tcp_connect(const char *host, int port, int timeout_ms)
+static int lamp_tcp_open(const char *host, int port, int timeout_ms)
 {
     struct sockaddr_in dest = {0};
     dest.sin_family = AF_INET;
@@ -405,7 +405,7 @@ void app_main(void)
                         printf("[vad] 有声音（%s dBFS）但 WiFi 没连上，跳过\n", s);
                         continue;
                     }
-                    fd = tcp_connect(CONFIG_LAMP_SERVER_HOST, CONFIG_LAMP_SERVER_PORT, 3000);
+                    fd = lamp_tcp_open(CONFIG_LAMP_SERVER_HOST, CONFIG_LAMP_SERVER_PORT, 3000);
                     if (fd < 0) {
                         printf("[net] 连不上 %s:%d，跳过这一句\n", CONFIG_LAMP_SERVER_HOST,
                                CONFIG_LAMP_SERVER_PORT);
