@@ -2,6 +2,7 @@
 
 #include <IRrecv.h>
 #include <IRsend.h>
+#include <IRutils.h>
 #include <IRremoteESP8266.h>
 
 namespace irengine {
@@ -124,10 +125,23 @@ void poll() {
         return;
     }
 
+    // IRremoteESP8266 2.9 的 IRrecv 没有 encode()；用 IRutils 的
+    // resultToRawArray() 把 decode_results 转成 sendRaw() 兼容的微秒数组，
+    // 长度由 getCorrectedRawLength() 给出，返回值需要调用方 delete[]。
     uint16_t len = 0;
-    const uint16_t encoded = irrecv.encode(&results, scratch, len, irstore::kMaxRawLen);
+    const uint16_t rawLen = getCorrectedRawLength(&results);
+    if (rawLen > irstore::kMaxRawLen) {
+        irrecv.resume();
+        finish(false, LearnError::TooLong, 0);
+        return;
+    }
+    uint16_t* raw = resultToRawArray(&results);
+    if (raw != nullptr) {
+        len = rawLen;
+        memcpy(scratch, raw, static_cast<size_t>(len) * sizeof(uint16_t));
+        delete[] raw;
+    }
     irrecv.resume();
-    if (len == 0) len = encoded;
 
     if (len < irstore::kMinRawLen) {
         finish(false, LearnError::TooShort, len);

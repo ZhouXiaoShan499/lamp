@@ -17,8 +17,16 @@ lamp/
 │   ├── 02-市场调研与竞品分析.md   TAM/SAM/SOM、竞品矩阵、调研脚本
 │   ├── 03-技术方案.md             硬件选型、引脚、红外/照明/机械/定时/语音
 │   ├── 04-MVP验证计划.md          三轮验证、指标阈值、测试协议
-│   └── 05-风险与里程碑.md         风险登记册、决策门、预算
-├── firmware/                     ESP32-S3 固件骨架（PlatformIO）
+│   ├── 05-风险与里程碑.md         风险登记册、决策门、预算
+│   └── 06-语音AI链路实施手册.md   任务一/二/三：V829 麦克风 → Vosk → DeepSeek
+├── firmware/                     ESP32-S3 固件（PlatformIO）
+│   └── include/secrets.h.example WiFi 与电脑 IP 模板（复制为 secrets.h）
+├── server/                       局域网语音服务（Vosk ASR + Ollama）
+│   ├── voice_server.py           WebSocket 服务器：PCM → ASR → DeepSeek → 文字
+│   ├── ask.py                    终端直接问 DeepSeek（流式）
+│   ├── asr_test.py               用 wav 单独验证 Vosk
+│   ├── test_client.py            假 ESP32：不需要开发板即可验证整条链路
+│   └── models/                   vosk-model-small-cn-0.22
 └── tools/
     └── mvp_calc.py               工程/商业计算器（BOM、功耗、热、单台经济、IR 存储自检）
 ```
@@ -35,6 +43,30 @@ python tools/mvp_calc.py selftest
 # 编译固件（需 PlatformIO + ESP32 平台）
 cd firmware && pio run -e lamp_s3
 ```
+
+### 语音链路（V829 麦克风 → 电脑 ASR → DeepSeek）
+
+```powershell
+# 1) 大脑：安装 Ollama 后拉模型
+ollama pull deepseek-r1:1.5b
+
+# 2) PC 端依赖 + 自检（ASR + 大模型都 ok 才继续）
+cd server
+pip install -r requirements.txt
+python voice_server.py --check
+
+# 3) 不用开发板先验证整条链路
+python voice_server.py            # 终端 A
+python test_client.py             # 终端 B：wav → ASR → DeepSeek
+
+# 4) ESP32：填 WiFi/IP 后烧录，串口执行
+copy firmware\include\secrets.h.example firmware\include\secrets.h   # 再编辑
+mic test 10                       # 任务一：拍手/说话看 RMS 跳动
+voice status                      # 任务三：应显示 ws=up
+voice say 今天适合复习吗           # 跳过麦克风，直接测大脑
+```
+
+完整接线、预期串口输出与排障见 `docs/06-语音AI链路实施手册.md`。
 
 ## 关键数字（由 `tools/mvp_calc.py` 计算，非拍脑袋）
 

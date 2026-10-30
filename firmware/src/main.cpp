@@ -3,15 +3,19 @@
 // See docs/03-技术方案.md for the design rationale behind each module.
 
 #include <Arduino.h>
+#include <Esp.h>
+#include <LittleFS.h>
 
 #include "config.h"
 #include "ir_engine.h"
 #include "ir_store.h"
 #include "lighting.h"
 #include "motion.h"
+#include "pdm_mic.h"
 #include "pwm.h"
 #include "timer_task.h"
 #include "ui.h"
+#include "voice_client.h"
 
 #if defined(LAMP_WIFI_SSID) && defined(LAMP_WIFI_PASS)
 #include <WiFi.h>
@@ -217,17 +221,9 @@ void onTimerFire(const timers::Task& task) {
 // ------------------------------------------------------------------- buttons ---
 void onLightButton(BtnEvent event) {
     if (event == BtnEvent::Short) {
-        static const uint8_t steps[] = {25, 50, 75, 100};
-        const uint8_t current = lighting::brightness();
-        uint8_t next = 60;
-        for (uint8_t i = 0; i < sizeof(steps); ++i) {
-            if (steps[i] > current) {
-                next = steps[i];
-                break;
-            }
-        }
-        if (current >= 100) next = 25;
-        if (!lighting::isOn()) next = 60;
+        // 短按 = 开/关。之前是"25→50→75→100 循环"，永远关不掉，用户会以为按键坏了。
+        const bool turnOn = !lighting::isOn();
+        const uint8_t next = turnOn ? 60 : 0;
         lighting::setBrightness(next);
         ui::logf("{\"ev\":\"light_set\",\"pct\":%u,\"src\":\"button\"}", next);
     } else if (event == BtnEvent::Long) {
@@ -328,3 +324,365 @@ void wifiTick(uint32_t now) {
     }
 }
 #endif
+
+// ------------------------------------------------------------- command shell ---
+uint32_t micMonitorUntil = 0;
+
+void printStatusReport() {
+    Serial.printf("[status] fw=%s uptime=%lus heap=%lu\n", FW_VERSION,
+                  static_cast<unsigned long>(millis() / 1000UL),
+                  static_cast<unsigned long>(ESP.getFreeHeap()));
+    Serial.printf("[status] light=%s pct=%u cct=%uK preset=%s\n", lighting::isOn() ? "on" : "off",
+                  lighting::brightness(), lighting::cct(), lighting::presetName(lighting::preset()));
+    Serial.printf("[status] ir=%s slots=%u/%u\n", irengine::isLearning() ? "learning" : "idle",
+                  static_cast<unsigned>(irstore::usedSlots()),
+                  static_cast<unsigned>(irstore::kSlots));
+    Serial.printf("[status] timers=%u clock=%s motion=%s\n", static_cast<unsigned>(timers::count()),
+                  timers::timeValid() ? "synced" : "no-epoch", motion::muted() ? "muted" : "on");
+    voice::printStatus();
+}
+
+void dumpLogTail() {
+    File file = LittleFS.open("/log/events.log", FILE_READ);
+    if (!file) {
+        Serial.println("[log] empty");
+        return;
+    }
+    const size_t size = file.size();
+    const size_t window = 1200;
+    const size_t start = (size > window) ? size - window : 0;
+    file.seek(start);
+    Serial.printf("[log] tail %u of %u bytes\n", static_cast<unsigned>(size - start),
+                  static_cast<unsigned>(size));
+    while (file.available()) Serial.write(file.read());
+    file.close();
+}
+
+bool parseSlot(const char* text, uint8_t* out) {
+    if (text == nullptr) return false;
+    char* end = nullptr;
+    const long value = strtol(text, &end, 10);
+    if (end == text || *end != '\0' || value < 0 || value >= irstore::kSlots) return false;
+    *out = static_cast<uint8_t>(value);
+    return true;
+}
+
+void onCommand(int argc, char** argv) {
+    const char* cmd = argv[0];
+
+    if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) {
+        ui::printHelp();
+        return;
+    }
+    if (strcmp(cmd, "status") == 0) {
+        printStatusReport();
+        return;
+    }
+
+    if (strcmp(cmd, "light") == 0) {
+        if (argc < 2) {
+            Serial.println("usage: light <0-100>");
+            return;
+        }
+        const int pct = atoi(argv[1]);
+        if (pct < 0 || pct > 100) {
+            Serial.println("light: 0..100");
+            return;
+        }
+        lighting::setBrightness(static_cast<uint8_t>(pct));
+        ui::logf("{\"ev\":\"light_set\",\"pct\":%d,\"src\":\"cli\"}", pct);
+        return;
+    }
+    if (strcmp(cmd, "cct") == 0) {
+        if (argc < 2) {
+            Serial.println("usage: cct <2700-6500>");
+            return;
+        }
+        lighting::setCct(static_cast<uint16_t>(atoi(argv[1])));
+        return;
+    }
+    if (strcmp(cmd, "mode") == 0) {
+        if (argc < 2) {
+            Serial.println("usage: mode study|office|rest|night");
+            return;
+        }
+        const char* name = argv[1];
+        lighting::Preset preset = lighting::Preset::Study;
+        if (strcmp(name, "office") == 0) {
+            preset = lighting::Preset::Office;
+        } else if (strcmp(name, "rest") == 0) {
+            preset = lighting::Preset::Rest;
+        } else if (strcmp(name, "night") == 0) {
+            preset = lighting::Preset::Night;
+        } else if (strcmp(name, "study") != 0) {
+            Serial.println("mode: study|office|rest|night");
+            return;
+        }
+        lighting::setPreset(preset);
+        ui::logf("{\"ev\":\"light_preset\",\"name\":\"%s\"}", lighting::presetName(preset));
+        return;
+    }
+
+    if (strcmp(cmd, "learn") == 0) {
+        if (argc >= 2 && (strcmp(argv[1], "cancel") == 0 || strcmp(argv[1], "stop") == 0)) {
+            exitLearn("user");
+            return;
+        }
+        if (learnActive) {
+            Serial.println("learn already running, use 'learn cancel'");
+            return;
+        }
+        uint8_t slot = 0;
+        if (!parseSlot(argc >= 2 ? argv[1] : nullptr, &slot)) {
+            Serial.println("usage: learn <slot 0-15> | learn cancel");
+            return;
+        }
+        enterLearn(slot);
+        return;
+    }
+    if (strcmp(cmd, "send") == 0) {
+        uint8_t slot = 0;
+        if (!parseSlot(argc >= 2 ? argv[1] : nullptr, &slot)) {
+            Serial.println("usage: send <slot 0-15>");
+            return;
+        }
+        sendIrSlot(slot);
+        return;
+    }
+    if (strcmp(cmd, "slots") == 0) {
+        Serial.printf("[slots] %u/%u used\n", static_cast<unsigned>(irstore::usedSlots()),
+                      static_cast<unsigned>(irstore::kSlots));
+        for (uint8_t i = 0; i < irstore::kSlots; ++i) {
+            if (irstore::exists(i)) Serial.printf("  slot %u: stored\n", i);
+        }
+        return;
+    }
+    if (strcmp(cmd, "erase") == 0) {
+        uint8_t slot = 0;
+        if (!parseSlot(argc >= 2 ? argv[1] : nullptr, &slot)) {
+            Serial.println("usage: erase <slot 0-15>");
+            return;
+        }
+        const irstore::Result result = irstore::erase(slot);
+        Serial.printf("erase %u: %s\n", slot, irstore::toString(result));
+        return;
+    }
+
+    if (strcmp(cmd, "timer") == 0) {
+        if (argc < 2) {
+            Serial.println("usage: timer <seconds> [slot]");
+            return;
+        }
+        const uint32_t seconds = strtoul(argv[1], nullptr, 10);
+        uint8_t action = timers::ActionLightOn;
+        uint16_t irSlot = 0;
+        if (argc >= 3) {
+            uint8_t slot = 0;
+            if (!parseSlot(argv[2], &slot)) {
+                Serial.println("timer: bad slot");
+                return;
+            }
+            action |= timers::ActionIr;
+            irSlot = slot;
+        }
+        const uint8_t id = timers::addCountdown(seconds, action, irSlot);
+        if (id == 0xFF) {
+            Serial.println("timer: no free task slot");
+        } else {
+            Serial.printf("timer #%u armed\n", id);
+        }
+        return;
+    }
+    if (strcmp(cmd, "daily") == 0) {
+        if (argc < 2) {
+            Serial.println("usage: daily HH:MM [slot]");
+            return;
+        }
+        unsigned hour = 0, minute = 0;
+        if (sscanf(argv[1], "%u:%u", &hour, &minute) != 2 || hour > 23 || minute > 59) {
+            Serial.println("daily: HH:MM expected");
+            return;
+        }
+        uint8_t action = timers::ActionLightOn;
+        uint16_t irSlot = 0;
+        if (argc >= 3) {
+            uint8_t slot = 0;
+            if (!parseSlot(argv[2], &slot)) {
+                Serial.println("daily: bad slot");
+                return;
+            }
+            action |= timers::ActionIr;
+            irSlot = slot;
+        }
+        const uint8_t id = timers::addDaily(static_cast<uint16_t>(hour * 60 + minute),
+                                           timers::EveryDay, action, irSlot);
+        if (id == 0xFF) {
+            Serial.println("daily: no free task slot");
+        } else if (!timers::timeValid()) {
+            Serial.printf("daily #%u stored, waiting for a clock sync\n", id);
+        } else {
+            Serial.printf("daily #%u armed for %02u:%02u\n", id, hour, minute);
+        }
+        return;
+    }
+    if (strcmp(cmd, "tasks") == 0) {
+        const uint8_t count = timers::count();
+        Serial.printf("[tasks] %u/%u\n", static_cast<unsigned>(count), static_cast<unsigned>(TASK_MAX));
+        const timers::Task* tasks = timers::all();
+        for (uint8_t i = 0; i < count; ++i) {
+            Serial.printf("  %s\n", timers::describe(tasks[i]).c_str());
+        }
+        return;
+    }
+    if (strcmp(cmd, "del") == 0) {
+        const int id = argc >= 2 ? atoi(argv[1]) : -1;
+        const bool ok = (id >= 0) && timers::removeTask(static_cast<uint8_t>(id));
+        Serial.println(ok ? "task removed" : "usage: del <id>");
+        return;
+    }
+    if (strcmp(cmd, "clear") == 0) {
+        timers::clearAll();
+        Serial.println("all tasks cleared");
+        return;
+    }
+    if (strcmp(cmd, "time") == 0) {
+        if (argc < 2) {
+            Serial.println("usage: time <epoch-seconds>");
+            return;
+        }
+        timers::setEpoch(static_cast<uint32_t>(strtoul(argv[1], nullptr, 10)));
+        Serial.printf("clock set to %lu\n", static_cast<unsigned long>(timers::epoch()));
+        return;
+    }
+
+    if (strcmp(cmd, "motion") == 0) {
+        if (argc < 2) {
+            Serial.println("usage: motion nod|left|right|home|alert");
+            return;
+        }
+        motion::Move move = motion::Move::Home;
+        if (strcmp(argv[1], "nod") == 0) {
+            move = motion::Move::Nod;
+        } else if (strcmp(argv[1], "left") == 0) {
+            move = motion::Move::TurnLeft;
+        } else if (strcmp(argv[1], "right") == 0) {
+            move = motion::Move::TurnRight;
+        } else if (strcmp(argv[1], "alert") == 0) {
+            move = motion::Move::Alert;
+        } else if (strcmp(argv[1], "home") != 0) {
+            Serial.println("motion: nod|left|right|home|alert");
+            return;
+        }
+        const bool ok = motion::request(move);
+        Serial.printf("motion %s: %s\n", motion::moveName(move), ok ? "started" : "suppressed");
+        return;
+    }
+    if (strcmp(cmd, "mute") == 0 || strcmp(cmd, "unmute") == 0) {
+        const bool mute = strcmp(cmd, "mute") == 0;
+        motion::setMuted(mute);
+        Serial.printf("motion %s\n", mute ? "muted" : "enabled");
+        return;
+    }
+    if (strcmp(cmd, "log") == 0) {
+        dumpLogTail();
+        return;
+    }
+
+    // ---- voice / microphone ------------------------------------------------
+    if (strcmp(cmd, "mic") == 0) {
+        const char* sub = argc >= 2 ? argv[1] : "test";
+        if (strcmp(sub, "on") == 0) {
+            voice::setMonitor(true);
+        } else if (strcmp(sub, "off") == 0) {
+            voice::setMonitor(false);
+        } else if (strcmp(sub, "probe") == 0) {
+            pdmmic::diagnose();
+        } else if (strcmp(sub, "test") == 0) {
+            const int seconds = argc >= 3 ? atoi(argv[2]) : 5;
+            const int clamped = (seconds <= 0 || seconds > 60) ? 5 : seconds;
+            voice::setMonitor(true);
+            micMonitorUntil = millis() + static_cast<uint32_t>(clamped) * 1000UL;
+            Serial.printf("mic test: %d s, clap or speak now\n", clamped);
+        } else {
+            Serial.println("usage: mic on|off|test [seconds]");
+        }
+        return;
+    }
+    if (strcmp(cmd, "voice") == 0) {
+        const char* sub = argc >= 2 ? argv[1] : "status";
+        if (strcmp(sub, "status") == 0) {
+            voice::printStatus();
+        } else if (strcmp(sub, "listen") == 0) {
+            voice::requestListen();
+        } else if (strcmp(sub, "say") == 0) {
+            String text;
+            for (int i = 2; i < argc; ++i) {
+                if (i > 2) text += ' ';
+                text += argv[i];
+            }
+            voice::sendText(text.c_str());
+        } else {
+            Serial.println("usage: voice status|listen|say <text>");
+        }
+        return;
+    }
+
+    Serial.printf("unknown command: %s (try 'help')\n", cmd);
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------- entry points
+void setup() {
+    irstore::begin();  // mounts LittleFS; ui::begin() writes into /log
+    ui::begin();
+    ui::setCommandHandler(onCommand);
+
+    pinMode(PIN_STATUS_LED, OUTPUT);
+    digitalWrite(PIN_STATUS_LED, LOW);
+
+    buttonInit(btnMode, PIN_BTN_MODE);
+    buttonInit(btnLight, PIN_BTN_LIGHT);
+    buttonInit(btnLearn, PIN_BTN_LEARN);
+
+    lighting::begin();
+    motion::begin();
+    timers::begin();
+    timers::setHandler(onTimerFire);
+    irengine::begin();
+    irengine::setHandler(onLearnResult);
+
+#if LAMP_HAS_VOICE
+    voice::begin();
+#endif
+
+    ui::logf("{\"ev\":\"boot\",\"fw\":\"%s\",\"heap\":%lu}", FW_VERSION,
+             static_cast<unsigned long>(ESP.getFreeHeap()));
+    ui::setStatus("ready");
+}
+
+void loop() {
+    const uint32_t now = millis();
+
+    ui::tick(now);
+    handleButtons(now);
+    irengine::poll();
+    lighting::tick(now);
+    motion::tick(now);
+    timers::tick(now);
+    statusTick(now);
+    beepTick(now);
+
+#if LAMP_WIFI_ENABLED
+    wifiTick(now);
+#endif
+#if LAMP_HAS_VOICE
+    voice::tick(now);
+#endif
+
+    if (micMonitorUntil != 0 && static_cast<int32_t>(now - micMonitorUntil) >= 0) {
+        micMonitorUntil = 0;
+        voice::setMonitor(false);
+        Serial.println("mic test: done");
+    }
+}

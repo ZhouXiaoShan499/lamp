@@ -145,6 +145,17 @@ void setScale(float value) {
 
 void clearScale() { scale = 1.0f; }
 
+void flush() {
+    buildLut();
+    uint8_t warmPct = 0, coolPct = 0;
+    channelsFor(targetKelvin, &warmPct, &coolPct);
+    const uint16_t pct = powered ? targetPct : 0;
+    currentWarm = static_cast<float>(gammaLut[pct]) * warmPct / 100.0f * scale;
+    currentCool = static_cast<float>(gammaLut[pct]) * coolPct / 100.0f * scale;
+    pwm::write(PIN_LED_WARM, CH_LED_WARM, static_cast<uint32_t>(currentWarm + 0.5f));
+    pwm::write(PIN_LED_COOL, CH_LED_COOL, static_cast<uint32_t>(currentCool + 0.5f));
+}
+
 void tick(uint32_t now) {
     (void)now;
     buildLut();

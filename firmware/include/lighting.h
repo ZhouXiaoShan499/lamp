@@ -27,6 +27,10 @@ void tick(uint32_t now);
 void setScale(float scale);        // 0.0 .. 1.0
 void clearScale();
 
+// Applies the current target immediately instead of ramping. Used around short
+// power spikes (IR burst, servo start) where the rail needs headroom *now*.
+void flush();
+
 uint8_t brightness();              // target brightness in percent
 uint16_t cct();                    // target colour temperature in kelvin
 bool isOn();

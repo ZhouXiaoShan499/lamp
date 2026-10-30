@@ -89,7 +89,8 @@ void begin() {
     Serial.begin(115200);
     delay(50);
     Serial.println();
-    Serial.println("=== LAMP-1 MVP firmware " FW_VERSION " ===");
+    // FW_VERSION 是 constexpr const char*，不能和字符串字面量直接拼接
+    Serial.printf("=== LAMP-1 MVP firmware %s ===\n", FW_VERSION);
     printHelp();
 
     if (!LittleFS.exists(LOG_DIR)) LittleFS.mkdir(LOG_DIR);
@@ -180,7 +181,10 @@ void printHelp() {
         "  time <epoch>               set the clock manually (testing)\n"
         "  motion nod|left|right|home|alert\n"
         "  mute | unmute              disable / enable motion\n"
-        "  log                        dump the tail of the event log\n");
+        "  log                        dump the tail of the event log\n"
+        "  mic on|off|test [seconds]  PDM mic level meter (voice task 1)\n"
+        "  voice status|listen        LAN link status / record one utterance\n"
+        "  voice say <text>           ask the local LLM by text (voice task 2/3)\n");
 }
 
 }  // namespace ui
