@@ -19,6 +19,9 @@ venv/
 .idea/
 *.swp
 
+# 本地 AI 助手工作记录（非项目代码）
+.workbuddy/
+
 # 操作系统
 Thumbs.db
 .DS_Store
