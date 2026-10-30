@@ -20,3 +20,15 @@ venv/
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# ESP-IDF 构建产物
+firmware/idf/**/build/
+firmware/idf/**/sdkconfig
+build/
+
+# Vosk 语音识别模型（体积大，走外部下载/存储）
+server/models/
+
+# 探测/临时文件
+.dsh-write-probe.txt
+*.wav

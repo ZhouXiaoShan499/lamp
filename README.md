@@ -17,8 +17,11 @@ lamp/
 │   ├── 02-市场调研与竞品分析.md   TAM/SAM/SOM、竞品矩阵、调研脚本
 │   ├── 03-技术方案.md             硬件选型、引脚、红外/照明/机械/定时/语音
 │   ├── 04-MVP验证计划.md          三轮验证、指标阈值、测试协议
-│   └── 05-风险与里程碑.md         风险登记册、决策门、预算
+│   ├── 05-风险与里程碑.md         风险登记册、决策门、预算
+│   └── 06-面包板点亮验证.md       按键(GPIO4)开灯(GPIO5)最小通路与排错
 ├── firmware/                     ESP32-S3 固件骨架（PlatformIO）
+│   ├── src/bringup/              面包板 bring-up：只跑按键->灯，不依赖库
+│   └── micropython/              面包板实测固件（板上当前运行的就是这份）
 └── tools/
     └── mvp_calc.py               工程/商业计算器（BOM、功耗、热、单台经济、IR 存储自检）
 ```
@@ -34,7 +37,14 @@ python tools/mvp_calc.py selftest
 
 # 编译固件（需 PlatformIO + ESP32 平台）
 cd firmware && pio run -e lamp_s3
+
+# 面包板最小验证：按键 -> 灯（不依赖 IR/舵机/LittleFS）
+cd firmware && pio run -e bringup -t upload && pio device monitor -b 115200
 ```
+
+> 手上只有开发板 + HW-483 按键 + HW-479 RGB 模块时，**先跑 `-e bringup`**，
+> 不要直接烧 `lamp_s3`：那份固件的 GPIO4/5 是照明 PWM，按键在 13/14/15，
+> 与面包板接法冲突。步骤与排错见 `docs/06-面包板点亮验证.md`。
 
 ## 关键数字（由 `tools/mvp_calc.py` 计算，非拍脑袋）
 
