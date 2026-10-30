@@ -1,0 +1,2439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0b09">
+<title>LAMP—1 · 会回应你的光</title>
+<meta name="description" content="LAMP-1 可动桌面台灯交互数字样机：调节亮度、色温、双轴姿态与定时关闭。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230d0f0c'/%3E%3Ccircle cx='32' cy='25' r='12' fill='none' stroke='%23e5b776' stroke-width='3'/%3E%3Cpath d='M32 38v11M22 53h20' stroke='%23e5b776' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+/* --------------------------------------------------------------------------
+   LAMP—1 digital twin
+   Structure: topbar / stage + control deck / live telemetry
+   -------------------------------------------------------------------------- */
+:root{
+  --bg:#090a08;
+  --surface:#10120e;
+  --surface-2:#151812;
+  --surface-3:#1b1e17;
+  --text:#f2ede2;
+  --text-soft:#cfc8b9;
+  --muted:#8f9286;
+  --muted-2:#696d62;
+  --line:rgba(242,237,226,.08);
+  --line-strong:rgba(242,237,226,.14);
+  --accent:#e5b776;
+  --accent-soft:rgba(229,183,118,.12);
+  --green:#b6cba8;
+  --lamp-rgb:255,207,158;
+  --ambient-opacity:.64;
+  --radius:28px;
+  --sans:"Segoe UI","SF Pro Display","PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  --mono:"SFMono-Regular","Cascadia Mono","Cascadia Code","Consolas","Liberation Mono",monospace;
+  --serif:"Iowan Old Style","Baskerville","Songti SC","STSong","SimSun",serif;
+  --ease:cubic-bezier(.22,.61,.36,1);
+}
+*{box-sizing:border-box}
+html{color-scheme:dark;scroll-behavior:smooth}
+body{
+  margin:0;
+  min-height:100vh;
+  background:
+    radial-gradient(900px 650px at 76% -15%, rgba(143,107,65,.11), transparent 63%),
+    radial-gradient(760px 500px at 4% 100%, rgba(88,103,72,.07), transparent 70%),
+    linear-gradient(180deg,#0c0e0b 0%,#090a08 58%,#0a0b08 100%);
+  color:var(--text);
+  font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+}
+body::before{
+  content:"";
+  position:fixed;
+  inset:-50%;
+  z-index:9999;
+  pointer-events:none;
+  opacity:.035;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+}
+button,input{font:inherit}
+button{color:inherit}
+button,a,input{tap-highlight-color:transparent}
+button{cursor:pointer}
+button:focus-visible,a:focus-visible,input:focus-visible{
+  outline:2px solid rgba(229,183,118,.8);
+  outline-offset:3px;
+}
+::selection{background:rgba(229,183,118,.24);color:#fff9ed}
+.sr-only{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0;
+}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.app{
+  width:100%;
+  max-width:1600px;
+  min-height:100svh;
+  margin:0 auto;
+  padding:20px clamp(16px,2.4vw,34px) 24px;
+  display:flex;
+  flex-direction:column;
+}
+/* ---------------------------------------------------------------- topbar */
+.topbar{
+  min-height:52px;
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:24px;
+  margin-bottom:16px;
+}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand-mark{
+  width:34px;height:34px;flex:0 0 auto;
+  display:grid;place-items:center;
+  border:1px solid rgba(229,183,118,.3);
+  border-radius:11px;
+  background:linear-gradient(145deg,rgba(229,183,118,.14),rgba(229,183,118,.02));
+  box-shadow:inset 0 1px 0 rgba(255,245,228,.08),0 8px 24px rgba(0,0,0,.25);
+  color:var(--accent);
+}
+.brand-mark svg{width:20px;height:20px}
+.brand-copy{display:flex;align-items:baseline;gap:13px;min-width:0}
+.brand-name{
+  font-family:var(--mono);
+  font-size:14px;font-weight:500;
+  letter-spacing:.16em;
+  color:var(--text);
+  white-space:nowrap;
+}
+.brand-sub{
+  font-size:10px;
+  letter-spacing:.12em;
+  color:var(--muted);
+  white-space:nowrap;
+  padding-left:13px;
+  border-left:1px solid var(--line-strong);
+}
+.top-actions{display:flex;align-items:center;gap:14px;min-width:0}
+.system-state{
+  display:flex;align-items:center;gap:8px;
+  font-family:var(--mono);
+  font-size:9px;
+  letter-spacing:.11em;
+  color:var(--muted);
+  white-space:nowrap;
+}
+.live-dot{
+  position:relative;width:6px;height:6px;flex:0 0 auto;border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 0 3px rgba(182,203,168,.07),0 0 12px rgba(182,203,168,.35);
+}
+.live-dot::after{
+  content:"";position:absolute;inset:-4px;border-radius:50%;
+  border:1px solid rgba(182,203,168,.2);
+  animation:livePulse 2.8s ease-out infinite;
+}
+@keyframes livePulse{
+  0%{transform:scale(.7);opacity:.7}
+  70%,100%{transform:scale(1.45);opacity:0}
+}
+.top-divider{width:1px;height:18px;background:var(--line)}
+.reset-btn{
+  height:30px;
+  display:inline-flex;align-items:center;gap:7px;
+  padding:0 11px;
+  border:1px solid var(--line);
+  border-radius:9px;
+  background:rgba(255,255,255,.018);
+  color:var(--muted);
+  font-size:10px;
+  letter-spacing:.04em;
+  transition:background .25s var(--ease),color .25s var(--ease),border-color .25s var(--ease);
+}
+.reset-btn:hover{color:var(--text-soft);border-color:var(--line-strong);background:rgba(255,255,255,.04)}
+.reset-btn svg{width:12px;height:12px;transition:transform .5s var(--ease)}
+.reset-btn.is-spinning svg{transform:rotate(-180deg)}
+/* ---------------------------------------------------------------- layout */
+.workspace{
+  flex:1 1 auto;
+  min-height:600px;
+  height:calc(100svh - 112px);
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 392px;
+  gap:18px;
+}
+/* ------------------------------------------------------------------ stage */
+.stage{
+  position:relative;
+  min-width:0;
+  min-height:0;
+  display:grid;
+  grid-template-rows:minmax(0,1fr) auto;
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  overflow:hidden;
+  background:#0d0f0c;
+  box-shadow:0 28px 90px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.045);
+  isolation:isolate;
+}
+.stage::after{
+  content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.018),inset 0 -90px 120px -120px rgba(0,0,0,.55);
+}
+.stage-canvas{
+  position:relative;
+  min-height:0;
+  overflow:hidden;
+  background:
+    radial-gradient(66% 50% at 63% 33%,rgba(var(--lamp-rgb),calc(var(--ambient-opacity) * .19)),transparent 72%),
+    linear-gradient(180deg,#151710 0%,#0e100c 58%,#0a0b08 100%);
+  isolation:isolate;
+}
+.stage-canvas::before{
+  content:"";
+  position:absolute;inset:0;z-index:2;
+  pointer-events:none;
+  background:
+    linear-gradient(90deg,rgba(7,8,6,.26) 0%,transparent 32%,transparent 80%,rgba(7,8,6,.08) 100%),
+    linear-gradient(180deg,rgba(7,8,6,.16) 0%,transparent 26%,transparent 80%,rgba(7,8,6,.22) 100%);
+}
+.stage-canvas::after{
+  content:"";
+  position:absolute;inset:0;z-index:2;
+  pointer-events:none;
+  opacity:.07;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+  mix-blend-mode:soft-light;
+}
+.scene{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  z-index:1;
+  display:block;
+  pointer-events:none;
+  transition:filter 1s var(--ease);
+}
+.app[data-power="off"] .scene{filter:brightness(.72) saturate(.78)}
+.stage-ambient{
+  position:absolute;inset:0;z-index:1;pointer-events:none;
+  mix-blend-mode:screen;
+  opacity:var(--ambient-opacity);
+  background:
+    radial-gradient(28% 31% at 64% 38%,rgba(var(--lamp-rgb),.22) 0%,transparent 72%),
+    radial-gradient(46% 22% at 66% 79%,rgba(var(--lamp-rgb),.15) 0%,transparent 76%),
+    radial-gradient(34% 14% at 66% 92%,rgba(var(--lamp-rgb),.24) 0%,transparent 78%);
+  transition:opacity 1s var(--ease);
+  animation:ambientBreath 9s ease-in-out infinite alternate;
+}
+@keyframes ambientBreath{
+  from{transform:scale(1);filter:blur(0)}
+  to{transform:scale(1.025);filter:blur(1px)}
+}
+/* scene artwork */
+.scene .hit{
+  pointer-events:all;
+  fill:rgba(0,0,0,0);
+  stroke:transparent;
+  cursor:pointer;
+  outline:none;
+}
+.scene #headHit{cursor:grab;touch-action:none}
+.stage.is-aiming #headHit{cursor:grabbing}
+.scene .hit:focus-visible{fill:rgba(229,183,118,.055);stroke:rgba(229,183,118,.7);stroke-width:1.2}
+#headHit:active{cursor:grabbing}
+#aimReticle{
+  opacity:0;
+  transition:opacity .35s var(--ease);
+  pointer-events:none;
+}
+.stage.is-aiming #aimReticle{opacity:.72}
+.beam-layer{mix-blend-mode:screen}
+.spill-layer{mix-blend-mode:screen;pointer-events:none}
+.dust-layer{mix-blend-mode:screen;pointer-events:none}
+.mote{animation:moteFloat var(--dur,9s) ease-in-out var(--delay,0s) infinite alternate;transform-box:fill-box;transform-origin:center}
+@keyframes moteFloat{
+  from{transform:translate3d(0,0,0);opacity:.2}
+  to{transform:translate3d(10px,-18px,0);opacity:.8}
+}
+.steam{animation:steamRise 5.8s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+.steam.second{animation-delay:2.1s;animation-duration:6.6s}
+@keyframes steamRise{
+  0%{opacity:0;transform:translateY(4px) scaleX(.94)}
+  20%{opacity:.42}
+  55%{opacity:.25}
+  100%{opacity:0;transform:translateY(-26px) scaleX(1.08)}
+}
+.scene .oled-text{font-family:var(--mono);font-size:6.5px;letter-spacing:.06em;fill:#cabda7}
+.scene .oled-dim{fill:#6e7663}
+.scene .engraving{font-family:var(--mono);font-size:6px;letter-spacing:.12em;fill:#8d7b66;opacity:.62}
+.scene .head-engraving{font-family:var(--mono);font-size:5.5px;letter-spacing:.14em;fill:#76614b;opacity:.8}
+.scene text{font-family:var(--mono)}
+.lamp-stop{stop-color:rgb(var(--lamp-rgb))}
+.lamp-color{fill:rgb(var(--lamp-rgb))}
+.lamp-color-stroke{stroke:rgb(var(--lamp-rgb))}
+.lens-light{opacity:.96;transition:opacity .4s var(--ease)}
+.spill-layer{opacity:0;transition:opacity .5s var(--ease)}
+/* stage overlays */
+.hero{
+  position:absolute;
+  z-index:4;
+  top:clamp(28px,4.4vh,48px);
+  left:clamp(24px,3.4vw,46px);
+  width:min(41%,430px);
+  pointer-events:none;
+  text-shadow:0 2px 24px rgba(4,5,4,.32);
+}
+.eyebrow{
+  display:flex;align-items:center;gap:10px;
+  margin:0 0 19px;
+  font-family:var(--mono);
+  font-size:9px;
+  line-height:1.2;
+  letter-spacing:.15em;
+  color:var(--muted);
+  text-transform:uppercase;
+}
+.eyebrow::before{
+  content:"";width:27px;height:1px;flex:0 0 auto;
+  background:linear-gradient(90deg,var(--accent),rgba(229,183,118,.16));
+}
+.hero h1{
+  margin:0;
+  font-size:clamp(46px,4.6vw,68px);
+  line-height:.99;
+  font-weight:350;
+  letter-spacing:-.075em;
+  color:#f4efe4;
+}
+.hero h1 span{display:block}
+.hero h1 .accent{
+  margin-top:.13em;
+  padding-bottom:.08em;
+  color:#f0d6af;
+  background:linear-gradient(100deg,#f5f0e4 0%,#ead1aa 46%,#caa267 100%);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+.hero h1 .accent::after{
+  content:"";
+  display:inline-block;
+  width:.14em;height:.14em;
+  margin-left:.06em;
+  vertical-align:.1em;
+  border-radius:50%;
+  background:var(--accent);
+  box-shadow:0 0 18px rgba(229,183,118,.65);
+  -webkit-text-fill-color:var(--accent);
+}
+.hero-desc{
+  max-width:286px;
+  margin:22px 0 0;
+  color:#aaa99d;
+  font-size:12px;
+  line-height:1.9;
+  letter-spacing:.015em;
+}
+.hero-meta{
+  display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  margin-top:20px;
+  font-family:var(--mono);
+  font-size:8.5px;
+  letter-spacing:.1em;
+  color:#83877b;
+}
+.hero-meta i{width:2px;height:2px;border-radius:50%;background:#5e6358}
+.stage-badge{
+  position:absolute;z-index:4;top:26px;right:26px;
+  min-height:30px;
+  display:inline-flex;align-items:center;gap:9px;
+  padding:0 12px;
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:999px;
+  background:rgba(11,13,10,.46);
+  -webkit-backdrop-filter:blur(14px);
+  backdrop-filter:blur(14px);
+  box-shadow:0 10px 24px rgba(0,0,0,.16),inset 0 1px 0 rgba(255,255,255,.04);
+  color:#b8b9ae;
+  font-family:var(--mono);
+  font-size:8.5px;
+  letter-spacing:.11em;
+  white-space:nowrap;
+  transition:border-color .4s var(--ease),background .4s var(--ease);
+}
+.stage-badge .badge-dot{
+  width:5px;height:5px;border-radius:50%;
+  background:var(--accent);
+  box-shadow:0 0 10px rgba(229,183,118,.55);
+}
+.stage-badge .badge-rule{width:1px;height:11px;background:var(--line-strong)}
+.stage-badge .badge-kicker{color:#777c70}
+.stage-badge strong{font-weight:500;color:#dad4c8;letter-spacing:.02em;font-family:var(--sans);font-size:10px}
+.app[data-power="off"] .stage-badge .badge-dot{background:#686d62;box-shadow:none}
+.gesture-hint{
+  position:absolute;z-index:4;left:clamp(24px,3.4vw,46px);bottom:20px;
+  display:flex;align-items:center;gap:8px;
+  color:#74796e;
+  font-family:var(--mono);
+  font-size:8.5px;
+  letter-spacing:.09em;
+  pointer-events:none;
+}
+.gesture-hint svg{width:13px;height:13px;opacity:.7}
+.gesture-hint b{font-weight:400;color:#a1a397}
+/* stage telemetry rail */
+.stage-metrics{
+  position:relative;z-index:5;
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  border-top:1px solid var(--line);
+  background:
+    linear-gradient(180deg,rgba(17,19,15,.82),rgba(12,14,11,.96));
+  -webkit-backdrop-filter:blur(18px);
+  backdrop-filter:blur(18px);
+}
+.metric{
+  min-width:0;
+  padding:13px clamp(16px,2.3vw,26px) 14px;
+  position:relative;
+}
+.metric + .metric::before{
+  content:"";position:absolute;left:0;top:19px;bottom:19px;width:1px;background:var(--line);
+}
+.metric-label{
+  display:flex;align-items:center;gap:7px;
+  margin-bottom:7px;
+  color:var(--muted);
+  font-family:var(--mono);
+  font-size:8.5px;
+  letter-spacing:.12em;
+  white-space:nowrap;
+}
+.metric-label .mini-led{
+  width:5px;height:5px;border-radius:50%;
+  background:rgb(var(--lamp-rgb));
+  box-shadow:0 0 8px rgba(var(--lamp-rgb),.55);
+  transition:background .4s,box-shadow .4s;
+}
+.app[data-power="off"] .metric-label .mini-led{background:#555a50;box-shadow:none}
+.metric-value{
+  display:flex;align-items:baseline;gap:4px;
+  font-family:var(--mono);
+  font-variant-numeric:tabular-nums;
+  font-size:16px;
+  font-weight:400;
+  color:#ece7dc;
+  letter-spacing:-.025em;
+  white-space:nowrap;
+}
+.metric-value .unit{
+  color:#797e72;font-size:9px;letter-spacing:.02em;font-weight:400;
+}
+.metric-value .sep{margin:0 2px;color:#5e6258;font-size:12px}
+.metric-sub{
+  color:#6b7064;
+  font-size:8px;
+  letter-spacing:.03em;
+}
+.metric-value.is-warm{color:var(--accent)}
+/* --------------------------------------------------------------- console */
+.console{
+  position:relative;
+  min-width:0;
+  min-height:0;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  background:
+    linear-gradient(180deg,rgba(24,27,21,.92) 0%,rgba(15,17,13,.96) 54%,rgba(12,14,11,.98) 100%);
+  box-shadow:0 28px 90px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.05);
+  -webkit-backdrop-filter:blur(24px);
+  backdrop-filter:blur(24px);
+}
+.console::before{
+  content:"";position:absolute;z-index:0;inset:0 0 auto;height:150px;
+  pointer-events:none;
+  background:radial-gradient(80% 130% at 80% 0%,rgba(229,183,118,.07),transparent 70%);
+}
+.console-head{
+  position:relative;z-index:1;
+  flex:0 0 auto;
+  display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+  padding:21px 23px 17px;
+  border-bottom:1px solid var(--line);
+}
+.panel-kicker{
+  display:flex;align-items:center;gap:8px;
+  margin:0 0 5px;
+  color:#989184;
+  font-family:var(--mono);
+  font-size:8.5px;
+  letter-spacing:.16em;
+}
+.panel-kicker::before{content:"";width:13px;height:1px;background:var(--accent);opacity:.7}
+.console-title{
+  margin:0;
+  color:#eee9de;
+  font-size:23px;
+  line-height:1.2;
+  font-weight:450;
+  letter-spacing:-.045em;
+}
+.console-title em{
+  margin-left:7px;
+  color:#777b70;
+  font-family:var(--mono);
+  font-style:normal;
+  font-size:9px;
+  letter-spacing:.12em;
+  vertical-align:middle;
+}
+.power-control{display:flex;flex-direction:column;align-items:flex-end;gap:7px;padding-top:2px}
+.power-label{
+  color:#8d9083;
+  font-family:var(--mono);
+  font-size:8.5px;
+  letter-spacing:.06em;
+  white-space:nowrap;
+  transition:color .3s var(--ease);
+}
+.switch{
+  position:relative;
+  width:48px;height:27px;
+  padding:0;
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:999px;
+  background:#282c23;
+  box-shadow:inset 0 2px 6px rgba(0,0,0,.35);
+  transition:background .35s var(--ease),border-color .35s var(--ease),box-shadow .35s var(--ease);
+}
+.switch::before{
+  content:"";position:absolute;top:50%;left:9px;width:3px;height:3px;margin-top:-1.5px;
+  border-radius:50%;background:#6d7166;transition:background .35s;
+  box-shadow:0 0 0 2px rgba(255,255,255,.02);
+}
+.switch .thumb{
+  position:absolute;top:3px;left:3px;
+  width:19px;height:19px;
+  border-radius:50%;
+  background:#c8c4b7;
+  box-shadow:0 2px 5px rgba(0,0,0,.4);
+  transition:transform .35s var(--ease),background .35s var(--ease);
+}
+.switch[aria-checked="true"]{
+  background:rgba(229,183,118,.32);
+  border-color:rgba(229,183,118,.5);
+  box-shadow:inset 0 1px 4px rgba(0,0,0,.2),0 0 22px rgba(229,183,118,.08);
+}
+.switch[aria-checked="true"]::before{background:var(--accent);box-shadow:0 0 7px rgba(229,183,118,.7)}
+.switch[aria-checked="true"] .thumb{transform:translateX(21px);background:#f0d9b4}
+.switch:active .thumb{width:21px}
+.console-body{
+  position:relative;z-index:1;
+  flex:1 1 auto;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:17px 23px 16px;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(255,255,255,.13) transparent;
+  overscroll-behavior:contain;
+}
+.console-body::-webkit-scrollbar{width:5px}
+.console-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:99px}
+.group{padding:0}
+.group + .group{
+  margin-top:15px;padding-top:15px;
+  border-top:1px solid rgba(242,237,226,.065);
+}
+.group-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:17px}
+.group-head h3,.group-head label{
+  margin:0;
+  color:#e0dacd;
+  font-size:12px;
+  line-height:1.2;
+  font-weight:450;
+  letter-spacing:.015em;
+}
+.group-head .tag{
+  color:#93988b;
+  font-family:var(--mono);
+  font-size:9px;
+  letter-spacing:.045em;
+  white-space:nowrap;
+  transition:color .3s var(--ease);
+}
+.group-head .tag.is-warm{color:#d6ba8e}
+.group-head .tag.is-live{color:var(--accent)}
+/* scenes */
+.scene-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:9px}
+.scene-btn{
+  position:relative;
+  height:52px;
+  min-width:0;
+  padding:0 8px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:rgba(255,255,255,.016);
+  display:flex;flex-direction:column;align-items:flex-start;justify-content:center;
+  gap:3px;
+  overflow:hidden;
+  transition:border-color .25s var(--ease),background .25s var(--ease),transform .25s var(--ease);
+}
+.scene-btn:hover{background:rgba(255,255,255,.035);border-color:var(--line-strong);transform:translateY(-1px)}
+.scene-btn .scene-name{
+  display:flex;align-items:center;gap:5px;
+  color:#d1cabc;
+  font-size:11.5px;
+  letter-spacing:.015em;
+  white-space:nowrap;
+}
+.scene-btn .scene-name svg{width:13px;height:13px;color:#8f9386;transition:color .25s}
+.scene-btn .scene-cct{
+  color:#787d70;
+  font-family:var(--mono);
+  font-size:8.5px;
+  letter-spacing:.025em;
+  transition:color .25s;
+}
+.scene-btn::after{
+  content:"";position:absolute;left:8px;right:8px;bottom:0;height:1px;
+  background:var(--accent);opacity:0;
+  transform:scaleX(.3);transform-origin:left;
+  transition:opacity .3s var(--ease),transform .35s var(--ease);
+}
+.scene-btn[aria-pressed="true"]{
+  border-color:rgba(229,183,118,.27);
+  background:linear-gradient(155deg,rgba(229,183,118,.115),rgba(229,183,118,.035));
+  box-shadow:inset 0 1px 0 rgba(255,244,225,.06);
+}
+.scene-btn[aria-pressed="true"] .scene-name{color:#f0dfc4}
+.scene-btn[aria-pressed="true"] .scene-name svg{color:var(--accent)}
+.scene-btn[aria-pressed="true"] .scene-cct{color:#9d8b71}
+.scene-btn[aria-pressed="true"]::after{opacity:.8;transform:scaleX(1)}
+/* sliders */
+.field-value{
+  display:flex;align-items:baseline;gap:2px;
+  color:#f3ede2;
+  font-family:var(--mono);
+  font-size:14px;
+  letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+}
+.field-value small{margin-left:2px;color:#777c70;font-size:8px;letter-spacing:.03em;font-weight:400}
+.range-wrap{position:relative;margin-top:9px;height:20px}
+.range{
+  -webkit-appearance:none;appearance:none;
+  display:block;
+  width:100%;height:20px;
+  margin:0;padding:0;
+  border:none;
+  background:transparent;
+  cursor:pointer;
+}
+.range::-webkit-slider-runnable-track{
+  height:3px;border-radius:99px;
+  background:var(--range-track,rgba(255,255,255,.1));
+}
+.range::-moz-range-track{
+  height:3px;border-radius:99px;
+  background:var(--range-track,rgba(255,255,255,.1));
+}
+.range::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:14px;height:14px;margin-top:-5.5px;
+  border:1px solid rgba(40,35,27,.55);
+  border-radius:50%;
+  background:#f1e6d3;
+  box-shadow:0 0 0 4px rgba(229,183,118,.09),0 2px 6px rgba(0,0,0,.42);
+  transition:box-shadow .2s var(--ease),transform .2s var(--ease);
+}
+.range::-moz-range-thumb{
+  width:13px;height:13px;
+  border:1px solid rgba(40,35,27,.55);
+  border-radius:50%;
+  background:#f1e6d3;
+  box-shadow:0 0 0 4px rgba(229,183,118,.09),0 2px 6px rgba(0,0,0,.42);
+  transition:box-shadow .2s var(--ease),transform .2s var(--ease);
+}
+.range:hover::-webkit-slider-thumb{box-shadow:0 0 0 5px rgba(229,183,118,.13),0 2px 7px rgba(0,0,0,.45)}
+.range:hover::-moz-range-thumb{box-shadow:0 0 0 5px rgba(229,183,118,.13),0 2px 7px rgba(0,0,0,.45)}
+.range:active::-webkit-slider-thumb{transform:scale(1.1)}
+.range:active::-moz-range-thumb{transform:scale(1.1)}
+.range:disabled{opacity:.4;cursor:not-allowed}
+.range-meta{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin-top:7px;
+  color:#757a6e;
+  font-family:var(--mono);
+  font-size:8px;
+  letter-spacing:.035em;
+}
+#brightness{--range-track:linear-gradient(90deg,rgba(255,255,255,.07) 0%,rgba(229,183,118,.72) var(--fill,100%),rgba(255,255,255,.075) var(--fill,100%),rgba(255,255,255,.075) 100%)}
+#cct{--range-track:linear-gradient(90deg,#e9a765 0%,#f1c48f 29%,#f5e7d3 55%,#dde7f3 78%,#c2d7f1 100%)}
+#yaw{--range-track:linear-gradient(90deg,rgba(255,255,255,.075) 0%,rgba(229,183,118,.64) var(--fill,50%),rgba(255,255,255,.075) var(--fill,50%),rgba(255,255,255,.075) 100%)}
+#tilt{--range-track:linear-gradient(90deg,rgba(255,255,255,.075) 0%,rgba(229,183,118,.5) var(--fill,44%),rgba(255,255,255,.075) var(--fill,44%),rgba(255,255,255,.075) 100%)}
+/* posture */
+.axis-grid{display:grid;grid-template-columns:1fr 1fr;gap:17px;margin-top:10px}
+.axis-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.axis-head label{color:#a3a799;font-size:10px;letter-spacing:.03em}
+.axis-value{
+  color:#e5dfd3;
+  font-family:var(--mono);
+  font-size:11px;
+  font-variant-numeric:tabular-nums;
+}
+.axis-value .deg{color:#707569;font-size:8px}
+.axis .range-wrap{margin-top:6px}
+.move-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:12px}
+.move-btn{
+  height:31px;
+  min-width:0;
+  display:inline-flex;align-items:center;justify-content:center;gap:4px;
+  padding:0 4px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:rgba(255,255,255,.016);
+  color:#a9ac9f;
+  font-size:10px;
+  white-space:nowrap;
+  transition:color .22s var(--ease),background .22s var(--ease),border-color .22s var(--ease);
+}
+.move-btn svg{width:11px;height:11px;flex:0 0 auto;opacity:.72}
+.move-btn:hover{color:#eee7da;background:rgba(255,255,255,.04);border-color:rgba(229,183,118,.23)}
+.move-btn:active{transform:translateY(1px)}
+.move-btn.is-active{color:var(--accent);border-color:rgba(229,183,118,.3);background:rgba(229,183,118,.07)}
+/* timer */
+.timer-row{display:flex;gap:7px;margin-top:9px}
+.timer-chips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;flex:1 1 auto;min-width:0}
+.timer-chip{
+  height:29px;
+  padding:0;
+  border:1px solid var(--line);
+  border-radius:7px;
+  background:rgba(255,255,255,.012);
+  color:#8f9386;
+  font-family:var(--mono);
+  font-size:9.5px;
+  transition:color .2s var(--ease),border-color .2s var(--ease),background .2s var(--ease);
+}
+.timer-chip:hover:not(:disabled){color:#d7cdbd;border-color:var(--line-strong)}
+.timer-chip[aria-pressed="true"]{
+  color:#e6cba5;
+  border-color:rgba(229,183,118,.28);
+  background:rgba(229,183,118,.075);
+}
+.timer-chip:disabled{opacity:.46;cursor:not-allowed}
+.timer-start{
+  flex:0 0 58px;
+  height:29px;
+  padding:0 8px;
+  border:1px solid rgba(229,183,118,.4);
+  border-radius:7px;
+  background:#ddb477;
+  color:#201b12;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.04em;
+  transition:background .22s var(--ease),color .22s var(--ease),border-color .22s var(--ease);
+}
+.timer-start:hover{background:#ecc690}
+.timer-start.is-cancel{
+  background:transparent;
+  color:#d4b78b;
+  border-color:rgba(229,183,118,.3);
+}
+.timer-start.is-cancel:hover{background:rgba(229,183,118,.07)}
+.timer-progress{
+  height:2px;margin-top:9px;
+  border-radius:99px;background:rgba(255,255,255,.045);
+  overflow:hidden;
+}
+.timer-progress span{
+  display:block;width:0;height:100%;
+  border-radius:inherit;
+  background:linear-gradient(90deg,#b78c53,var(--accent));
+  box-shadow:0 0 10px rgba(229,183,118,.3);
+  transition:width .25s linear;
+}
+/* console footer */
+.console-foot{
+  position:relative;z-index:1;
+  flex:0 0 auto;
+  padding:12px 23px 14px;
+  border-top:1px solid var(--line);
+  background:rgba(7,9,7,.28);
+}
+.telemetry{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.telemetry-item{display:flex;flex-direction:column;gap:4px;min-width:0}
+.telemetry-label{
+  display:flex;align-items:center;gap:5px;
+  color:#818679;
+  font-family:var(--mono);
+  font-size:8px;
+  letter-spacing:.075em;
+  white-space:nowrap;
+}
+.telemetry-label .tiny-dot{
+  width:3px;height:3px;border-radius:50%;background:#6c7364;transition:background .3s,box-shadow .3s;
+}
+.telemetry-label .tiny-dot.is-moving{background:var(--accent);box-shadow:0 0 7px rgba(229,183,118,.6)}
+.telemetry-value{
+  color:#c8c3b6;
+  font-family:var(--mono);
+  font-size:11px;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.telemetry-value .unit{color:#656a5e;font-size:8px;margin-left:1px}
+.sim-note{
+  margin:9px 0 0;
+  color:#71766a;
+  font-size:8px;
+  line-height:1.45;
+  letter-spacing:.015em;
+}
+/* scene narrative: anchors the bottom of the deck without adding another control */
+.scene-note{
+  margin-top:15px;
+  padding-top:14px;
+  border-top:1px solid rgba(242,237,226,.065);
+}
+.scene-note-kicker{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  color:#8e9284;
+  font-family:var(--mono);
+  font-size:8px;
+  letter-spacing:.1em;
+}
+.scene-note-kicker span:last-child{color:#c0a67d;white-space:nowrap}
+.scene-note p{
+  margin:9px 0 0;
+  padding-left:11px;
+  border-left:1px solid rgba(229,183,118,.35);
+  color:#aba99d;
+  font-size:10.5px;
+  line-height:1.8;
+  letter-spacing:.01em;
+}
+.scene-note .note-sign{
+  display:flex;align-items:center;gap:6px;
+  margin-top:9px;
+  color:#656a5e;
+  font-family:var(--mono);
+  font-size:7.5px;
+  letter-spacing:.06em;
+}
+.scene-note .note-sign::before{
+  content:"";width:13px;height:1px;background:rgba(229,183,118,.5);
+}
+/* --------------------------------------------------------------- responsive */
+@media (max-width:1180px){
+  .app{padding-bottom:20px}
+  .workspace{
+    height:auto;
+    min-height:0;
+    grid-template-columns:1fr;
+    gap:16px;
+  }
+  .toast{bottom:22px}
+  .stage{height:min(66svh,610px);min-height:548px}
+  .console{height:auto;max-height:none}
+  .console-body{overflow:visible;padding-bottom:17px}
+  .hero{width:min(46%,400px)}
+  .hero h1{font-size:clamp(44px,5vw,58px)}
+  .hero-desc{max-width:260px}
+  .stage-metrics{padding-bottom:0}
+}
+/* short desktop/laptop viewports: keep every control above the fold */
+@media (min-width:1181px) and (max-height:820px){
+  .console-head{padding:16px 20px 13px}
+  .console-body{padding:13px 20px 12px}
+  .console-foot{padding:10px 20px 12px}
+  .group + .group{margin-top:11px;padding-top:11px}
+  .scene-btn{height:47px}
+  .range-meta{display:none}
+  .move-row{margin-top:10px}
+  .timer-progress{margin-top:7px}
+  .sim-note{margin-top:6px}
+}
+@media (max-width:760px){
+  .app{padding:13px 13px 20px}
+  .topbar{min-height:44px;margin-bottom:12px;gap:10px}
+  .brand{gap:9px}
+  .brand-mark{width:30px;height:30px;border-radius:9px}
+  .brand-mark svg{width:18px;height:18px}
+  .brand-name{font-size:12px;letter-spacing:.12em}
+  .brand-sub,.top-divider,.system-state{display:none}
+  .reset-btn{width:29px;height:29px;padding:0;justify-content:center;border-radius:8px}
+  .reset-btn span{display:none}
+  .workspace{gap:12px}
+  .stage{height:min(66svh,560px);min-height:500px;border-radius:22px}
+  .console{border-radius:22px}
+  .hero{top:22px;left:20px;width:calc(100% - 40px);max-width:none}
+  .eyebrow{font-size:7.5px;letter-spacing:.12em;margin-bottom:13px;gap:8px}
+  .eyebrow::before{width:18px}
+  .hero h1{font-size:clamp(35px,10.4vw,44px);line-height:1.01;letter-spacing:-.07em}
+  .hero h1 .accent{margin-top:.11em}
+  .hero-desc,.hero-meta{display:none}
+  .stage-badge{top:17px;right:17px;min-height:25px;padding:0 9px;gap:6px;font-size:7px;background:rgba(11,13,10,.56)}
+  .stage-badge .badge-kicker,.stage-badge .badge-rule{display:none}
+  .stage-badge strong{font-size:8.5px}
+  .gesture-hint{
+    display:flex;bottom:10px;left:16px;gap:5px;
+    padding:5px 8px;
+    border:1px solid rgba(242,237,226,.08);
+    border-radius:999px;
+    background:rgba(10,12,9,.46);
+    -webkit-backdrop-filter:blur(9px);
+    backdrop-filter:blur(9px);
+    color:#9da093;
+    font-size:8px;letter-spacing:.04em;
+  }
+  .gesture-hint svg{width:11px;height:11px}
+  .stage-metrics{grid-template-columns:1fr 1fr}
+  .metric{padding:10px 16px 11px}
+  .metric:nth-child(3)::before,.metric:nth-child(4)::before{display:none}
+  .metric:nth-child(3),.metric:nth-child(4){border-top:1px solid var(--line)}
+  .metric-label{font-size:7.5px;margin-bottom:5px}
+  .metric-value{font-size:14px}
+  .metric-sub{font-size:7px}
+  .console-head{padding:17px 18px 14px}
+  .console-title{font-size:21px}
+  .console-body{padding:14px 18px 16px}
+  .console-foot{padding:11px 18px 12px}
+  .group + .group{margin-top:13px;padding-top:13px}
+  .scene-btn{height:52px}
+  .scene-btn .scene-name{font-size:10.5px}
+  .scene-btn .scene-name svg{width:12px;height:12px}
+  .move-btn{font-size:9px;height:34px}
+  .range-wrap{height:28px;margin-top:7px}
+  .range{height:28px}
+  .range::-webkit-slider-runnable-track{height:4px}
+  .range::-moz-range-track{height:4px}
+  .range::-webkit-slider-thumb{width:18px;height:18px;margin-top:-7px}
+  .range::-moz-range-thumb{width:17px;height:17px}
+  .timer-row{gap:6px}
+  .timer-chip{height:33px}
+  .timer-start{flex-basis:54px;height:33px}
+  .telemetry-value{font-size:10px}
+  .sim-note{font-size:7px}
+  .toast{bottom:16px;font-size:11px;padding:9px 14px}
+}
+@media (max-width:390px){
+  .scene-btn{padding:0 6px}
+  .scene-btn .scene-name{gap:3px;font-size:10px}
+  .scene-btn .scene-cct{font-size:7.5px}
+  .axis-grid{gap:12px}
+  .move-row{gap:5px}
+  .move-btn{gap:3px;font-size:8.5px}
+  .move-btn svg{width:10px;height:10px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    animation-iteration-count:1 !important;
+    scroll-behavior:auto !important;
+  }
+  .scene,.stage-ambient,.lens-light,.spill-layer,.live-dot::after{transition:none !important}
+}
+/* toast */
+.toast{
+  position:fixed;
+  z-index:100;
+  left:50%;bottom:94px;
+  transform:translate(-50%,12px);
+  max-width:calc(100vw - 32px);
+  padding:10px 16px 10px 13px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:999px;
+  background:rgba(22,25,19,.92);
+  -webkit-backdrop-filter:blur(18px);
+  backdrop-filter:blur(18px);
+  box-shadow:0 16px 42px rgba(0,0,0,.36);
+  color:#ddd6c9;
+  font-size:11.5px;
+  letter-spacing:.015em;
+  white-space:nowrap;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .3s var(--ease),transform .35s var(--ease);
+}
+.toast::before{
+  content:"";display:inline-block;width:5px;height:5px;margin-right:8px;
+  border-radius:50%;background:var(--accent);vertical-align:1px;
+  box-shadow:0 0 10px rgba(229,183,118,.55);
+}
+.toast.is-visible{opacity:1;transform:translate(-50%,0)}
+/* initial reveal */
+@keyframes riseIn{
+  from{opacity:0;transform:translateY(14px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.hero,.console{animation:riseIn .85s var(--ease) both}
+.console{animation-delay:.08s}
+@media (prefers-reduced-motion:reduce){
+  .hero,.console{animation:none}
+}
+</style>
+</head>
+<body>
+<div class="app" id="app" data-power="on">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="8.2" r="4.4" stroke="currentColor" stroke-width="1.35"/>
+          <path d="M12 12.7v5.5M8.6 20.2h6.8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
+          <path d="M9.8 6.7c.7-.9 2.1-1.2 3.1-.6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity=".55"/>
+        </svg>
+      </span>
+      <div class="brand-copy">
+        <span class="brand-name">LAMP—1</span>
+        <span class="brand-sub">可动台灯 · 交互数字样机</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="system-state" aria-label="仿真系统运行中">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span>SIMULATION ONLINE</span>
+      </div>
+      <span class="top-divider" aria-hidden="true"></span>
+      <button class="reset-btn" id="resetBtn" type="button" title="恢复初始状态">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M13.2 5.8A5.7 5.7 0 1 0 13.7 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          <path d="M13.4 2.8v3.4H10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>重置</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="stage" id="stage" aria-label="LAMP-1 交互光场">
+      <div class="stage-canvas" id="stageCanvas">
+        <div class="stage-ambient" aria-hidden="true"></div>
+
+        <svg class="scene" id="sceneSvg" viewBox="0 0 1000 820" preserveAspectRatio="xMidYMid slice" role="img" aria-labelledby="sceneTitle sceneDesc">
+          <title id="sceneTitle">LAMP-1 数字样机：一盏双轴可动台灯</title>
+          <desc id="sceneDesc">暖色光环灯头悬在深色桌面之上，光束落在书本与马克杯旁。可拖动灯头，或点击灯座切换电源。</desc>
+          <defs>
+            <linearGradient id="wallGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#181a15"/>
+              <stop offset=".55" stop-color="#10120e"/>
+              <stop offset="1" stop-color="#0a0c09"/>
+            </linearGradient>
+            <radialGradient id="wallHaze" cx=".5" cy=".5" r=".5">
+              <stop offset="0" class="lamp-stop" stop-color="#f4c98e" stop-opacity=".2"/>
+              <stop offset=".46" stop-color="#d9b585" stop-opacity=".07"/>
+              <stop offset="1" stop-color="#0a0c09" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="deskGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#4d3928"/>
+              <stop offset=".28" stop-color="#3a2b1f"/>
+              <stop offset=".72" stop-color="#211811"/>
+              <stop offset="1" stop-color="#100d09"/>
+            </linearGradient>
+            <linearGradient id="deskEdge" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#a67f55" stop-opacity=".05"/>
+              <stop offset=".46" stop-color="#dcb381" stop-opacity=".3"/>
+              <stop offset="1" stop-color="#a67f55" stop-opacity=".035"/>
+            </linearGradient>
+            <linearGradient id="beamGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" class="lamp-stop" stop-color="#ffd49b" stop-opacity=".7"/>
+              <stop offset=".34" class="lamp-stop" stop-color="#ffd49b" stop-opacity=".31"/>
+              <stop offset=".76" class="lamp-stop" stop-color="#ffd49b" stop-opacity=".09"/>
+              <stop offset="1" class="lamp-stop" stop-color="#ffd49b" stop-opacity="0"/>
+            </linearGradient>
+            <linearGradient id="beamCore" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" class="lamp-stop" stop-color="#fff1d8" stop-opacity=".5"/>
+              <stop offset=".5" class="lamp-stop" stop-color="#ffe0b4" stop-opacity=".17"/>
+              <stop offset="1" class="lamp-stop" stop-color="#ffe0b4" stop-opacity="0"/>
+            </linearGradient>
+            <radialGradient id="poolGrad" cx=".5" cy=".5" r=".5">
+              <stop offset="0" class="lamp-stop" stop-color="#ffe4ba" stop-opacity=".88"/>
+              <stop offset=".35" class="lamp-stop" stop-color="#f6c989" stop-opacity=".52"/>
+              <stop offset=".74" class="lamp-stop" stop-color="#dba86d" stop-opacity=".15"/>
+              <stop offset="1" stop-color="#b88754" stop-opacity="0"/>
+            </radialGradient>
+            <radialGradient id="poolCore" cx=".5" cy=".5" r=".5">
+              <stop offset="0" class="lamp-stop" stop-color="#fff6e7" stop-opacity=".76"/>
+              <stop offset=".55" class="lamp-stop" stop-color="#ffe6c2" stop-opacity=".3"/>
+              <stop offset="1" class="lamp-stop" stop-color="#ffdfb5" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="armGrad" x1="488" y1="730" x2="548" y2="356" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#6a5139"/>
+              <stop offset=".23" stop-color="#b79366"/>
+              <stop offset=".48" stop-color="#e3c293"/>
+              <stop offset=".72" stop-color="#9d7952"/>
+              <stop offset="1" stop-color="#d2ac7d"/>
+            </linearGradient>
+            <linearGradient id="armShadow" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#2a2118"/>
+              <stop offset=".48" stop-color="#7d6044"/>
+              <stop offset="1" stop-color="#382b1e"/>
+            </linearGradient>
+            <radialGradient id="headShell" cx=".34" cy=".22" r=".85">
+              <stop offset="0" stop-color="#f0dfc8"/>
+              <stop offset=".28" stop-color="#d7c0a4"/>
+              <stop offset=".68" stop-color="#a48462"/>
+              <stop offset=".91" stop-color="#735a42"/>
+              <stop offset="1" stop-color="#5b4734"/>
+            </radialGradient>
+            <linearGradient id="headSide" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#8c6b4d"/>
+              <stop offset="1" stop-color="#3c2c20"/>
+            </linearGradient>
+            <radialGradient id="headWell" cx=".48" cy=".4" r=".7">
+              <stop offset="0" stop-color="#40352a"/>
+              <stop offset=".7" stop-color="#211b15"/>
+              <stop offset="1" stop-color="#130f0c"/>
+            </radialGradient>
+            <radialGradient id="lensGlow" cx=".5" cy=".44" r=".64">
+              <stop offset="0" stop-color="#fff7e9"/>
+              <stop offset=".25" stop-color="#ffead0"/>
+              <stop offset=".64" class="lamp-stop" stop-color="#ffcf98" stop-opacity=".9"/>
+              <stop offset=".92" class="lamp-stop" stop-color="#e8a465" stop-opacity=".45"/>
+              <stop offset="1" stop-color="#795238" stop-opacity=".15"/>
+            </radialGradient>
+            <linearGradient id="baseTopGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#ddc8ad"/>
+              <stop offset=".35" stop-color="#c7ad8d"/>
+              <stop offset=".72" stop-color="#8e7154"/>
+              <stop offset="1" stop-color="#5c4633"/>
+            </linearGradient>
+            <linearGradient id="baseSideGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#55402c"/>
+              <stop offset=".3" stop-color="#9c7955"/>
+              <stop offset=".62" stop-color="#6b5138"/>
+              <stop offset="1" stop-color="#3b2b1e"/>
+            </linearGradient>
+            <linearGradient id="brassGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#594329"/>
+              <stop offset=".3" stop-color="#c5a16e"/>
+              <stop offset=".55" stop-color="#eed4a9"/>
+              <stop offset="1" stop-color="#74563a"/>
+            </linearGradient>
+            <linearGradient id="mugGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#c8b99f"/>
+              <stop offset=".45" stop-color="#a99a83"/>
+              <stop offset=".74" stop-color="#796d5b"/>
+              <stop offset="1" stop-color="#554b3e"/>
+            </linearGradient>
+            <linearGradient id="bookGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#4c5948"/>
+              <stop offset=".55" stop-color="#394536"/>
+              <stop offset="1" stop-color="#232b22"/>
+            </linearGradient>
+            <linearGradient id="pageGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#d6cab6"/>
+              <stop offset="1" stop-color="#9f927e"/>
+            </linearGradient>
+            <filter id="blur40" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="40"/>
+            </filter>
+            <filter id="blur22" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="22"/>
+            </filter>
+            <filter id="blur12" x="-45%" y="-40%" width="190%" height="190%">
+              <feGaussianBlur stdDeviation="12"/>
+            </filter>
+            <filter id="blur7" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="7"/>
+            </filter>
+            <filter id="blur3" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="3"/>
+            </filter>
+            <filter id="shadowSoft" x="-30%" y="-50%" width="170%" height="210%">
+              <feDropShadow dx="0" dy="14" stdDeviation="15" flood-color="#000" flood-opacity=".32"/>
+            </filter>
+          </defs>
+
+          <!-- room -->
+          <rect x="-1400" y="-240" width="3800" height="1160" fill="url(#wallGrad)"/>
+          <ellipse cx="650" cy="370" rx="650" ry="500" fill="url(#wallHaze)" opacity=".9" class="wall-haze"/>
+          <g class="field-marks" fill="none" stroke="#d8c4a6" opacity=".14">
+            <path d="M770 82h94M817 35v94" stroke-width=".6"/>
+            <circle cx="817" cy="82" r="3" stroke-width=".7"/>
+            <path d="M78 650h42M99 629v42" stroke-width=".55" opacity=".6"/>
+            <path d="M-80 700C210 688 820 686 1080 700" stroke-width=".55" opacity=".32"/>
+          </g>
+          <g opacity=".2" fill="none" stroke="#cbb190" stroke-width=".7">
+            <circle cx="628" cy="345" r="286" stroke-dasharray="1 10"/>
+            <path d="M342 345h572M628 59v572" stroke-dasharray="1 15" opacity=".42"/>
+            <circle cx="628" cy="345" r="215" opacity=".18"/>
+          </g>
+          <g fill="#b9a78e" opacity=".18" font-family="var(--mono)" font-size="7.5" letter-spacing="2.2">
+            <text x="755" y="56">LIGHT FIELD / 01</text>
+            <text x="918" y="772" text-anchor="end">DESK SCENE · 24°C</text>
+          </g>
+
+          <!-- desk -->
+          <path d="M-1400 700C-700 684 1700 684 2400 700V940H-1400Z" fill="url(#deskGrad)"/>
+          <path d="M-1400 700C-700 684 1700 684 2400 700" fill="none" stroke="url(#deskEdge)" stroke-width="1.2"/>
+          <g fill="none" stroke="#c8a77f" stroke-linecap="round" opacity=".1">
+            <path d="M-480 739C70 723 680 726 1340 747" stroke-width=".9"/>
+            <path d="M-200 778C310 756 720 758 1150 782" stroke-width=".7" opacity=".7"/>
+            <path d="M230 720C540 711 850 713 1190 726" stroke-width=".6" opacity=".6"/>
+            <path d="M-420 814C170 791 770 797 1450 826" stroke-width=".8" opacity=".65"/>
+          </g>
+          <path d="M-80 716C260 703 840 702 1190 716" fill="none" stroke="#050605" stroke-width="18" opacity=".22" filter="url(#blur12)"/>
+
+          <!-- light volume on wall + desk -->
+          <g class="beam-layer" aria-hidden="true">
+            <path id="beamOuter" d="M545 365C542 486 470 654 390 758H930C822 621 728 468 705 365Z" fill="url(#beamGrad)" filter="url(#blur7)"/>
+            <path id="beamInner" d="M596 372C594 484 555 643 516 752H800C761 617 700 481 676 372Z" fill="url(#beamCore)" filter="url(#blur3)"/>
+            <ellipse id="lightPool" cx="660" cy="758" rx="235" ry="45" fill="url(#poolGrad)"/>
+            <ellipse id="lightPoolCore" cx="660" cy="756" rx="112" ry="20" fill="url(#poolCore)"/>
+          </g>
+
+          <!-- props -->
+          <g aria-hidden="true">
+            <!-- mug -->
+            <g transform="translate(835 686)">
+              <ellipse cx="3" cy="77" rx="47" ry="13" fill="#050604" opacity=".52" filter="url(#blur12)"/>
+              <path d="M23 13c24 2 31 14 29 25-3 14-17 18-33 14" fill="none" stroke="#756855" stroke-width="7" opacity=".85"/>
+              <path d="M-26 3C-24 38-18 65 1 66 21 66 28 38 28 3Z" fill="url(#mugGrad)"/>
+              <path d="M-22 4C-20 33-16 56-1 60" fill="none" stroke="#e4d6bf" stroke-width="1.2" opacity=".26"/>
+              <ellipse cx="1" cy="3" rx="27" ry="9" fill="#7a6d5b"/>
+              <ellipse cx="1" cy="2" rx="23" ry="7" fill="#17120e"/>
+              <ellipse cx="1" cy="1.5" rx="23" ry="6.4" fill="#211812"/>
+              <ellipse cx="-8" cy="0" rx="8" ry="2.1" fill="#6d5137" opacity=".2"/>
+              <path class="steam" d="M-9-10c-8-11 5-14 0-27" fill="none" stroke="#d9d2c4" stroke-width="1.1" opacity=".26" stroke-linecap="round"/>
+              <path class="steam second" d="M10-8c7-9-4-16 2-29" fill="none" stroke="#d9d2c4" stroke-width=".9" opacity=".16" stroke-linecap="round"/>
+            </g>
+            <!-- notebook and pencil -->
+            <g transform="translate(672 744) rotate(-4.2)">
+              <ellipse cx="80" cy="39" rx="99" ry="15" fill="#050604" opacity=".5" filter="url(#blur7)"/>
+              <rect x="0" y="9" width="177" height="32" rx="4" fill="#998e7d"/>
+              <rect x="0" y="5" width="177" height="33" rx="4" fill="url(#pageGrad)"/>
+              <rect x="0" y="0" width="177" height="31" rx="4" fill="url(#bookGrad)"/>
+              <path d="M1 8C42 12 128 12 176 8" fill="none" stroke="#71806a" stroke-width=".7" opacity=".5"/>
+              <path d="M15 0v31" stroke="#1a2119" stroke-width="8" opacity=".55"/>
+              <path d="M140 0v31" stroke="#20281e" stroke-width="3" opacity=".75"/>
+              <rect x="143" y="0" width="2" height="31" rx="1" fill="#a38f72" opacity=".55"/>
+              <text x="27" y="19" class="engraving" fill="#c2b59e" opacity=".5" font-size="5">LAMP—1</text>
+            </g>
+            <g transform="translate(744 791) rotate(-7)" aria-hidden="true">
+              <ellipse cx="49" cy="7" rx="79" ry="5" fill="#050604" opacity=".38" filter="url(#blur3)"/>
+              <path d="M2 4h91l13-3v5H15Z" fill="#8e714b"/>
+              <path d="M2 4h91" stroke="#e3c79d" stroke-width="1" opacity=".45"/>
+              <path d="M105 1l11-1-8 6-5-1Z" fill="#d2b183"/>
+              <path d="M10 4h76" stroke="#4b3824" stroke-width="1" opacity=".5"/>
+            </g>
+          </g>
+
+          <!-- warm light spilling over the prop side of the desk -->
+          <ellipse id="spillOverlay" class="spill-layer" cx="760" cy="745" rx="330" ry="92" fill="url(#poolGrad)" aria-hidden="true"/>
+          <ellipse id="spillCore" class="spill-layer" cx="760" cy="748" rx="185" ry="48" fill="url(#poolCore)" aria-hidden="true"/>
+
+          <!-- dust in the beam -->
+          <g class="dust-layer" id="dustGroup" aria-hidden="true" fill="rgb(var(--lamp-rgb))">
+            <circle class="mote" cx="554" cy="462" r="1.3" style="--dur:8.5s;--delay:-1s"/>
+            <circle class="mote" cx="704" cy="510" r="1" style="--dur:11s;--delay:-5s"/>
+            <circle class="mote" cx="612" cy="596" r="1.6" style="--dur:9.4s;--delay:-2.6s"/>
+            <circle class="mote" cx="758" cy="638" r="1.1" style="--dur:10.2s;--delay:-7s"/>
+            <circle class="mote" cx="660" cy="688" r="1.4" style="--dur:8s;--delay:-4.2s"/>
+            <circle class="mote" cx="500" cy="650" r=".9" style="--dur:12s;--delay:-3s"/>
+            <circle class="mote" cx="716" cy="706" r="1" style="--dur:9.8s;--delay:-8s"/>
+          </g>
+
+          <!-- lamp -->
+          <g id="lampRoot">
+            <ellipse cx="528" cy="773" rx="180" ry="36" fill="#040503" opacity=".52" filter="url(#blur22)"/>
+            <ellipse cx="548" cy="764" rx="139" ry="27" fill="#050604" opacity=".45" filter="url(#blur12)"/>
+
+            <!-- arm -->
+            <g id="armGroup">
+              <path d="M499 725C455 638 458 520 505 448C531 407 554 386 548 356" fill="none" stroke="#33281d" stroke-width="21" stroke-linecap="round" opacity=".82"/>
+              <path d="M497 724C454 637 458 521 504 449C530 408 551 385 548 356" fill="none" stroke="url(#armGrad)" stroke-width="13.2" stroke-linecap="round"/>
+              <path d="M496 716C456 630 464 526 508 457C529 424 547 397 547 370" fill="none" stroke="#f7e4c9" stroke-width="1.6" stroke-linecap="round" opacity=".23"/>
+              <path d="M505 715C470 635 474 532 514 468C533 439 548 412 548 389" fill="none" stroke="#4c3827" stroke-width="1.2" stroke-linecap="round" opacity=".4"/>
+              <ellipse cx="499" cy="724" rx="24" ry="8.6" fill="#3b2c20"/>
+              <ellipse cx="499" cy="721" rx="20" ry="6.4" fill="url(#brassGrad)" opacity=".92"/>
+              <path d="M492 705c-2 24-2 42 0 59" fill="none" stroke="#f3ddbd" stroke-width="1.1" opacity=".17"/>
+            </g>
+
+            <!-- base -->
+            <g id="lampBase">
+              <ellipse cx="505" cy="752" rx="130" ry="32" fill="#3d2d20"/>
+              <rect x="375" y="724" width="260" height="28" fill="url(#baseSideGrad)"/>
+              <path d="M377 739C420 755 590 755 633 739" fill="none" stroke="#2d2117" stroke-width="8" opacity=".36" filter="url(#blur3)"/>
+              <ellipse cx="505" cy="724" rx="130" ry="32" fill="url(#baseTopGrad)" stroke="#ead7ba" stroke-opacity=".2" stroke-width="1"/>
+              <ellipse cx="505" cy="724" rx="113" ry="26" fill="none" stroke="#5a442e" stroke-opacity=".65"/>
+              <ellipse cx="505" cy="724" rx="108" ry="23.5" fill="#302419" opacity=".2"/>
+              <path d="M390 724C417 710 466 703 510 703C550 703 597 709 620 724" fill="none" stroke="#fff2dc" stroke-width="1.4" opacity=".17"/>
+              <!-- small top display, kept abstract so it reads as hardware rather than UI -->
+              <g transform="translate(477 719)">
+                <rect x="-48" y="-10.5" width="96" height="21" rx="9" fill="#090b08" stroke="#5b4a37" stroke-width=".8"/>
+                <circle cx="-35" cy="0" r="2.3" fill="rgb(var(--lamp-rgb))" opacity=".8"/>
+                <text id="oledState" x="-27" y="2.8" class="oled-text">READY</text>
+                <text id="oledValue" x="42" y="2.8" text-anchor="end" class="oled-text oled-dim">4300K</text>
+              </g>
+              <!-- power key -->
+              <g id="baseKeyVisual" transform="translate(596 716)">
+                <ellipse cx="0" cy="3" rx="14" ry="7.5" fill="#241b13" opacity=".75"/>
+                <ellipse cx="0" cy="0" rx="13" ry="6.8" fill="#3e2f22" stroke="#b0916a" stroke-opacity=".6" stroke-width=".8"/>
+                <path d="M0-3.2v3.8M-3-1.5A4.2 4.2 0 1 0 3-1.5" fill="none" class="lamp-color-stroke" stroke-width="1.05" stroke-linecap="round"/>
+              </g>
+              <!-- tiny status LEDs -->
+              <g transform="translate(411 739)" fill="#8a704f" opacity=".55">
+                <circle cx="0" cy="0" r="1.3"/>
+                <circle cx="7" cy="0" r="1.3"/>
+                <circle cx="14" cy="0" r="1.3"/>
+              </g>
+              <text x="505" y="765" text-anchor="middle" class="engraving">LAMP—1 / DESK OBJECT</text>
+              <path d="M381 751C430 764 580 764 629 751" fill="none" stroke="#e8cfac" stroke-width=".9" opacity=".12"/>
+            </g>
+
+            <!-- head mount -->
+            <g id="headMount">
+              <path d="M548 356C558 375 579 384 597 374" fill="none" stroke="#35291d" stroke-width="16" stroke-linecap="round"/>
+              <path d="M548 356C558 375 579 384 597 374" fill="none" stroke="url(#brassGrad)" stroke-width="10.5" stroke-linecap="round"/>
+              <circle cx="548" cy="356" r="19.5" fill="#302419"/>
+              <circle cx="548" cy="356" r="16.5" fill="url(#brassGrad)"/>
+              <circle cx="548" cy="356" r="7" fill="#2b2118"/>
+              <circle cx="546" cy="353" r="2.2" fill="#f5e1bf" opacity=".55"/>
+              <path d="M571 371C581 378 588 374 594 367" fill="none" stroke="#f5ddba" stroke-width="1.1" opacity=".22"/>
+            </g>
+
+            <!-- lamp head -->
+            <g id="headPose">
+              <ellipse id="headBloom" cx="630" cy="311" rx="196" ry="119" fill="rgb(var(--lamp-rgb))" opacity=".16" filter="url(#blur40)"/>
+              <ellipse cx="628" cy="317" rx="143" ry="81" transform="rotate(-11 628 317)" fill="url(#headSide)" opacity=".95"/>
+              <ellipse cx="625" cy="303" rx="143" ry="81" transform="rotate(-11 625 303)" fill="url(#headShell)" filter="url(#shadowSoft)" stroke="#ead8c0" stroke-opacity=".12" stroke-width="1"/>
+              <ellipse cx="625" cy="306" rx="122" ry="65" transform="rotate(-11 625 306)" fill="url(#headWell)"/>
+              <ellipse cx="625" cy="307" rx="117" ry="60.5" transform="rotate(-11 625 307)" fill="none" stroke="#d0af85" stroke-opacity=".35" stroke-width="1"/>
+              <ellipse cx="625" cy="309" rx="108" ry="54" transform="rotate(-11 625 309)" fill="#201912"/>
+              <ellipse id="lensHalo" cx="625" cy="309" rx="103" ry="50" transform="rotate(-11 625 309)" fill="rgb(var(--lamp-rgb))" opacity=".23" filter="url(#blur12)"/>
+              <ellipse id="lensLight" class="lens-light" cx="625" cy="309" rx="99" ry="47" transform="rotate(-11 625 309)" fill="url(#lensGlow)"/>
+              <ellipse cx="625" cy="309" rx="99" ry="47" transform="rotate(-11 625 309)" fill="none" stroke="#ffe9c8" stroke-opacity=".3" stroke-width=".8"/>
+              <ellipse cx="625" cy="309" rx="89" ry="41" transform="rotate(-11 625 309)" fill="none" stroke="#c29660" stroke-opacity=".2" stroke-width=".8"/>
+              <ellipse cx="625" cy="309" rx="43" ry="20" transform="rotate(-11 625 309)" fill="none" stroke="#b58d5c" stroke-opacity=".12" stroke-width=".7"/>
+              <ellipse cx="625" cy="309" rx="10" ry="5" transform="rotate(-11 625 309)" fill="#3b2b1e" opacity=".75" stroke="#d9b47f" stroke-opacity=".38" stroke-width=".7"/>
+              <circle cx="625" cy="307" r="1.2" fill="rgb(var(--lamp-rgb))" opacity=".9"/>
+              <circle cx="625" cy="307" r=".45" fill="#fff8ea" opacity=".85"/>
+              <path d="M519 273C547 236 606 218 665 224C707 228 739 246 757 270C706 246 618 240 571 257C545 266 529 274 519 273Z" fill="#fff3df" opacity=".12"/>
+              <path d="M513 331C543 371 612 390 688 378" fill="none" stroke="rgb(var(--lamp-rgb))" stroke-width="1.3" opacity=".2" filter="url(#blur3)"/>
+              <text x="676" y="359" text-anchor="middle" class="head-engraving" transform="rotate(-11 676 359)">L·1</text>
+            </g>
+          </g>
+
+          <!-- target reticle, only while dragging -->
+          <g id="aimReticle" aria-hidden="true" transform="translate(660 756)" fill="none" stroke="#e5b776" stroke-width=".8">
+            <ellipse rx="96" ry="25" stroke-dasharray="2 7"/>
+            <path d="M-110 0h14M96 0h14M0-37v10M0 27v10" stroke-width="1"/>
+            <circle r="2.6" fill="#e5b776" stroke="none"/>
+            <text x="0" y="43" text-anchor="middle" fill="#d8b37f" stroke="none" font-family="var(--mono)" font-size="7" letter-spacing="1.8">AIM TARGET</text>
+          </g>
+
+          <!-- pointer targets -->
+          <g id="baseHit" class="hit" tabindex="0" role="button" aria-label="灯座：点按切换灯光电源">
+            <title>点按切换灯光电源</title>
+            <ellipse cx="505" cy="744" rx="139" ry="52"/>
+          </g>
+          <g id="headHit" class="hit" tabindex="0" role="button" aria-label="灯头：拖动调节朝向，轻点让它点头">
+            <title>拖动调节朝向 · 轻点让它点头</title>
+            <ellipse id="headHitShape" cx="625" cy="305" rx="157" ry="95" transform="rotate(-11 625 305)"/>
+          </g>
+        </svg>
+
+        <div class="hero">
+          <p class="eyebrow">LAMP—1 / Interactive model 001</p>
+          <h1>光，<span class="accent">会回应你。</span></h1>
+          <p class="hero-desc">双轴云台与双色温混光。拖动灯头调整光束，或让它在睡前慢慢暗下来。</p>
+          <div class="hero-meta">
+            <span>5W</span><i></i><span>2700—6500K</span><i></i><span>Ra ≥ 90</span><i></i><span>2-AXIS</span>
+          </div>
+        </div>
+
+        <div class="stage-badge" aria-hidden="true">
+          <span class="badge-dot"></span>
+          <strong id="stageMode">阅读场景</strong>
+          <span class="badge-rule"></span>
+          <span class="badge-kicker">LIVE SIM</span>
+        </div>
+
+        <div class="gesture-hint" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M5 2.7v6.1M5 8.8c0-1 .3-1.8.9-2.4.4-.5 1.1-.4 1.3.2l.4 1.2V4.4c0-.8.5-1.2 1.1-1.2.6 0 1 .4 1 1.2v2.2c0-.7.5-1.1 1.1-1.1.6 0 1 .4 1 1.1v3.2c0 2.2-1.3 3.7-3.4 3.7-1.5 0-2.4-.6-3.1-1.9L3 9.9c-.4-.8 0-1.5.7-1.5.3 0 .6.2.8.5l.5.8" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>拖动灯头调向</span>
+          <b>·</b>
+          <span>点按灯座开关</span>
+        </div>
+      </div>
+
+      <div class="stage-metrics" aria-label="当前灯光状态">
+        <div class="metric">
+          <div class="metric-label"><span class="mini-led" aria-hidden="true"></span>色温 / CCT</div>
+          <div class="metric-value"><span id="metricCct">4300</span><span class="unit">K</span></div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">照度 / ILLUMINANCE</div>
+          <div class="metric-value"><span class="metric-sub">≈</span><span id="metricLux">500</span><span class="unit">lx @ 40cm</span></div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">姿态 / AIM</div>
+          <div class="metric-value"><span id="metricYaw">0°</span><span class="sep">/</span><span id="metricTilt">30°</span></div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">定时 / TIMER</div>
+          <div class="metric-value" id="metricTimerWrap"><span id="metricTimer">--:--</span></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="console" aria-label="灯光控制台">
+      <header class="console-head">
+        <div>
+          <p class="panel-kicker">CONTROL DECK / 02</p>
+          <h2 class="console-title">光控台<em>LIGHT</em></h2>
+        </div>
+        <div class="power-control">
+          <span class="power-label" id="powerLabel">已开启</span>
+          <button class="switch" id="powerBtn" type="button" role="switch" aria-checked="true" aria-label="灯光电源">
+            <span class="thumb"></span>
+          </button>
+        </div>
+      </header>
+
+      <div class="console-body">
+        <section class="group" aria-labelledby="sceneHeading">
+          <div class="group-head">
+            <h3 id="sceneHeading">光场景</h3>
+            <span class="tag" id="sceneTag">阅读 / STUDY</span>
+          </div>
+          <div class="scene-row" role="group" aria-label="选择光场景">
+            <button class="scene-btn" type="button" data-scene="study" aria-pressed="true" aria-label="阅读场景，4300K，100% 亮度">
+              <span class="scene-name">
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3.5 4.4c1.8-.6 3.8-.2 5.2 1v10c-1.4-1.2-3.4-1.6-5.2-1V4.4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M16.5 4.4c-1.8-.6-3.8-.2-5.2 1v10c1.4-1.2 3.4-1.6 5.2-1V4.4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M8.7 5.4v10" stroke="currentColor" stroke-width="1.2"/></svg>
+                阅读
+              </span>
+              <span class="scene-cct">4300K · 100%</span>
+            </button>
+            <button class="scene-btn" type="button" data-scene="office" aria-pressed="false" aria-label="办公场景，5200K，80% 亮度">
+              <span class="scene-name">
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="3.5" width="14" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M7 17h6M10 13.5V17" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+                办公
+              </span>
+              <span class="scene-cct">5200K · 80%</span>
+            </button>
+            <button class="scene-btn" type="button" data-scene="rest" aria-pressed="false" aria-label="休息场景，2700K，35% 亮度">
+              <span class="scene-name">
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 7h9.5v6.2A2.8 2.8 0 0 1 10.7 16H6.8A2.8 2.8 0 0 1 4 13.2V7Z" stroke="currentColor" stroke-width="1.2"/><path d="M13.5 8.2h1.2a2 2 0 0 1 0 4h-1.2M7 4.2V3M10 4.2V3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+                休息
+              </span>
+              <span class="scene-cct">2700K · 35%</span>
+            </button>
+            <button class="scene-btn" type="button" data-scene="night" aria-pressed="false" aria-label="夜灯场景，2700K，1% 亮度">
+              <span class="scene-name">
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M15.7 12.2A6.2 6.2 0 0 1 7.8 4.3a6.3 6.3 0 1 0 7.9 7.9Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+                夜灯
+              </span>
+              <span class="scene-cct">2700K · 1%</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="group" aria-labelledby="brightnessLabel">
+          <div class="group-head">
+            <label id="brightnessLabel" for="brightness">亮度</label>
+            <output class="field-value" id="brightnessOut" for="brightness">100<small>%</small></output>
+          </div>
+          <div class="range-wrap">
+            <input class="range" id="brightness" type="range" min="1" max="100" step="1" value="100" aria-label="亮度，百分比">
+          </div>
+          <div class="range-meta"><span>1% NIGHT GLOW</span><span>100% FULL OUTPUT</span></div>
+        </section>
+
+        <section class="group" aria-labelledby="cctLabel">
+          <div class="group-head">
+            <label id="cctLabel" for="cct">色温</label>
+            <output class="field-value" id="cctOut" for="cct">4300<small>K</small></output>
+          </div>
+          <div class="range-wrap">
+            <input class="range" id="cct" type="range" min="2700" max="6500" step="100" value="4300" aria-label="色温，开尔文">
+          </div>
+          <div class="range-meta"><span>2700K · WARM</span><span>6500K · COOL</span></div>
+        </section>
+
+        <section class="group" aria-labelledby="postureHeading">
+          <div class="group-head">
+            <h3 id="postureHeading">灯头姿态</h3>
+            <span class="tag" id="motionTag">云台已释放</span>
+          </div>
+          <div class="axis-grid">
+            <div class="axis">
+              <div class="axis-head">
+                <label for="yaw">转向</label>
+                <span class="axis-value"><span id="yawOut">0</span><span class="deg">°</span></span>
+              </div>
+              <div class="range-wrap">
+                <input class="range" id="yaw" type="range" min="-60" max="60" step="1" value="0" aria-label="灯头转向，负数为左，正数为右">
+              </div>
+            </div>
+            <div class="axis">
+              <div class="axis-head">
+                <label for="tilt">俯仰</label>
+                <span class="axis-value"><span id="tiltOut">30</span><span class="deg">°</span></span>
+              </div>
+              <div class="range-wrap">
+                <input class="range" id="tilt" type="range" min="10" max="55" step="1" value="30" aria-label="灯头俯仰，范围 10 到 55 度">
+              </div>
+            </div>
+          </div>
+          <div class="move-row" role="group" aria-label="云台动作">
+            <button class="move-btn" type="button" data-move="nod" title="让灯头点头">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 5.5c2.7 0 4.7 1 6 3.1M3 10V5.5M3 10h4.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 3.5H13M10.5 6.5H13" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity=".55"/></svg>
+              点头
+            </button>
+            <button class="move-btn" type="button" data-move="left" title="灯头向左看">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M12.5 8h-9M7 3.5 3 8l4 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              左转
+            </button>
+            <button class="move-btn" type="button" data-move="right" title="灯头向右看">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8h9M9 3.5 13 8l-4 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              右转
+            </button>
+            <button class="move-btn" type="button" data-move="home" title="云台回到初始姿态">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="4.2" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="1" fill="currentColor"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity=".65"/></svg>
+              归位
+            </button>
+          </div>
+        </section>
+
+        <section class="group" aria-labelledby="timerHeading">
+          <div class="group-head">
+            <h3 id="timerHeading">定时关闭</h3>
+            <span class="tag" id="timerTag">未启动</span>
+          </div>
+          <div class="timer-row">
+            <div class="timer-chips" role="group" aria-label="定时时长，分钟">
+              <button class="timer-chip" type="button" data-minutes="15" aria-pressed="false">15</button>
+              <button class="timer-chip" type="button" data-minutes="30" aria-pressed="true">30</button>
+              <button class="timer-chip" type="button" data-minutes="45" aria-pressed="false">45</button>
+              <button class="timer-chip" type="button" data-minutes="60" aria-pressed="false">60</button>
+            </div>
+            <button class="timer-start" id="timerBtn" type="button">启动</button>
+          </div>
+          <div class="timer-progress" aria-hidden="true"><span id="timerProgress"></span></div>
+        </section>
+
+        <div class="scene-note">
+          <div class="scene-note-kicker">
+            <span>此刻的光 / THE MOMENT</span>
+            <span id="noteReadout">4300K · 100%</span>
+          </div>
+          <p id="sceneNote">4300K 的暖白光落在纸面上，让字迹清晰，也让夜晚保持安静。</p>
+          <div class="note-sign">双通道混光 · 双轴缓动 · 运动降载</div>
+        </div>
+      </div>
+
+      <footer class="console-foot">
+        <div class="telemetry" aria-label="实时仿真读数">
+          <div class="telemetry-item">
+            <span class="telemetry-label">功率 / POWER</span>
+            <span class="telemetry-value" id="telemetryPower">4.9 <span class="unit">W</span></span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">灯板 / LED TEMP</span>
+            <span class="telemetry-value" id="telemetryTemp">46.0 <span class="unit">°C</span></span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label"><span class="tiny-dot" id="servoDot"></span>云台 / SERVO</span>
+            <span class="telemetry-value" id="telemetryServo">待机</span>
+          </div>
+        </div>
+        <p class="sim-note">前端物理模型估算 · 依据 LAMP-1 固件参数 · 非实测数据</p>
+      </footer>
+    </aside>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="sr-only" id="announcer" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ------------------------------------------------------------------ model */
+  const SCENES = {
+    study:  { label: '阅读', en: 'STUDY',  cct: 4300, brightness: 100 },
+    office: { label: '办公', en: 'OFFICE', cct: 5200, brightness: 80 },
+    rest:   { label: '休息', en: 'REST',   cct: 2700, brightness: 35 },
+    night:  { label: '夜灯', en: 'NIGHT',  cct: 2700, brightness: 1 }
+  };
+  const SCENE_NOTES = {
+    study: '4300K 的暖白光落在纸面上，让字迹清晰，也让夜晚保持安静。',
+    office: '5200K 的中性白贴近日光，在屏幕与纸笔之间留下一段清醒的边界。',
+    rest: '2700K 把桌面收成一团柔光，留给一杯茶，和一段慢下来的时间。',
+    night: '1% 的暖光只够照亮脚下，不惊动睡意，也不打断这间房间的呼吸。',
+    standby: '灯光已经熄灭，灯还停在原处，等下一次被唤醒。',
+    manual: '自定义光配方，亮度和色温都由你决定。灯会记住这一刻。'
+  };
+  const LIMITS = {
+    brightness: [1, 100],
+    cct: [2700, 6500],
+    yaw: [-60, 60],
+    tilt: [10, 55],
+    homeYaw: 0,
+    homeTilt: 30
+  };
+  const THERMAL = { ambient: 24, fullLoad: 29, heatTau: 19, coolTau: 48 };
+  const HEAD = { pivotX: 548, pivotY: 356, cx: 625, cy: 305 };
+
+  const state = {
+    power: true,
+    preset: 'study',
+    brightness: 100,
+    cct: 4300,
+    yaw: 0,
+    tilt: 30,
+    selectedMinutes: 30,
+    timer: { active: false, endsAt: 0, totalMs: 0, minutes: 0 }
+  };
+
+  // Interpolated values used by the renderer; state remains the target.
+  const view = { intensity: 0, cct: 4300, yaw: 0, tilt: 30 };
+  const sim = {
+    temp: 46,
+    watts: 4.9,
+    servoBusy: false,
+    lastTempAt: performance.now(),
+    lastMovingAt: -1e9
+  };
+
+  let quickMotion = { active: false, token: 0, returnTimer: 0, kind: '' };
+  let draggingHead = null;
+  let lastFrame = performance.now();
+  let lastReadoutFrame = 0;
+  let toastTimer = 0;
+  let resetSpinTimer = 0;
+
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+  const app = $('#app');
+  const stage = $('#stage');
+  const stageCanvas = $('#stageCanvas');
+  const sceneSvg = $('#sceneSvg');
+  const beamOuter = $('#beamOuter');
+  const beamInner = $('#beamInner');
+  const lightPool = $('#lightPool');
+  const lightPoolCore = $('#lightPoolCore');
+  const spillOverlay = $('#spillOverlay');
+  const spillCore = $('#spillCore');
+  const dustGroup = $('#dustGroup');
+  const headBloom = $('#headBloom');
+  const lensLight = $('#lensLight');
+  const lensHalo = $('#lensHalo');
+  const headPose = $('#headPose');
+  const aimReticle = $('#aimReticle');
+  const headHit = $('#headHit');
+  const baseHit = $('#baseHit');
+  const oledState = $('#oledState');
+  const oledValue = $('#oledValue');
+
+  const powerBtn = $('#powerBtn');
+  const powerLabel = $('#powerLabel');
+  const sceneTag = $('#sceneTag');
+  const stageMode = $('#stageMode');
+  const motionTag = $('#motionTag');
+  const telemetryPower = $('#telemetryPower');
+  const telemetryTemp = $('#telemetryTemp');
+  const telemetryServo = $('#telemetryServo');
+  const servoDot = $('#servoDot');
+  const metricCct = $('#metricCct');
+  const metricLux = $('#metricLux');
+  const metricYaw = $('#metricYaw');
+  const metricTilt = $('#metricTilt');
+  const metricTimer = $('#metricTimer');
+  const metricTimerWrap = $('#metricTimerWrap');
+  const timerTag = $('#timerTag');
+  const timerBtn = $('#timerBtn');
+  const timerProgress = $('#timerProgress');
+  const brightnessInput = $('#brightness');
+  const brightnessOut = $('#brightnessOut');
+  const cctInput = $('#cct');
+  const cctOut = $('#cctOut');
+  const yawInput = $('#yaw');
+  const yawOut = $('#yawOut');
+  const tiltInput = $('#tilt');
+  const tiltOut = $('#tiltOut');
+  const sceneNote = $('#sceneNote');
+  const noteReadout = $('#noteReadout');
+  const timerChips = $$('.timer-chip');
+  const sceneButtons = $$('.scene-btn');
+  const moveButtons = $$('.move-btn');
+  const toastEl = $('#toast');
+  const announcer = $('#announcer');
+  const resetBtn = $('#resetBtn');
+
+  /* ----------------------------------------------------------------- utils */
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const round = (value, places = 0) => {
+    const p = 10 ** places;
+    return Math.round(value * p) / p;
+  };
+  const signed = value => {
+    const rounded = Math.round(value);
+    return rounded > 0 ? `+${rounded}` : String(rounded);
+  };
+  const pad2 = value => String(Math.max(0, value)).padStart(2, '0');
+  const formatCountdown = ms => {
+    const seconds = Math.max(0, Math.ceil(ms / 1000));
+    return `${pad2(Math.floor(seconds / 60))}:${pad2(seconds % 60)}`;
+  };
+  const sceneOf = key => SCENES[key] || SCENES.study;
+  const currentSceneLabel = () => {
+    if (!state.power) return '待机 / STANDBY';
+    if (state.preset === 'manual') return '自定义 / MANUAL';
+    const s = sceneOf(state.preset);
+    return `${s.label} / ${s.en}`;
+  };
+
+  // Tanner Helland approximation, then a little desaturation so the beam reads
+  // as light instead of saturated color.
+  function kelvinToRgb(kelvin) {
+    const t = clamp(kelvin, 1000, 40000) / 100;
+    let r, g, b;
+    if (t <= 66) {
+      r = 255;
+      g = 99.4708025861 * Math.log(t) - 161.1195681661;
+      b = t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+    } else {
+      r = 329.698727446 * ((t - 60) ** -0.1332047592);
+      g = 288.1221695283 * ((t - 60) ** -0.0755148492);
+      b = 255;
+    }
+    return [r, g, b].map(value => clamp(Math.round(value), 0, 255));
+  }
+  function mixWithWhite(rgb, amount) {
+    return rgb.map(value => Math.round(value + (255 - value) * amount));
+  }
+  function lampRgbFor(cct, intensity) {
+    // Cooler CCTs get a touch of white; warm CCTs keep their amber edge.
+    const whiteMix = 0.03 + clamp((cct - 2700) / 3800, 0, 1) * 0.1 + (1 - intensity) * 0.06;
+    return mixWithWhite(kelvinToRgb(cct), whiteMix);
+  }
+
+  function announce(message) {
+    announcer.textContent = '';
+    window.setTimeout(() => { announcer.textContent = message; }, 30);
+  }
+
+  function showToast(message) {
+    toastEl.textContent = message;
+    toastEl.classList.add('is-visible');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => toastEl.classList.remove('is-visible'), 2800);
+  }
+
+  /* ------------------------------------------------------------- scene fit */
+  // The illustration is composed for a 1000 × 820 field. Rather than cropping
+  // the lamp on unusual viewports, we change the viewBox to keep the scene's
+  // vertical frame and extend/crop only horizontally. Portraits add headroom.
+  function fitScene() {
+    const w = stageCanvas.clientWidth;
+    const h = stageCanvas.clientHeight;
+    if (!w || !h) return;
+    const aspect = w / h;
+    const portrait = aspect < 0.98;
+    const fieldH = portrait ? 940 : 820;
+    const fieldY = portrait ? -100 : 0;
+    const fieldW = fieldH * aspect;
+    const centerX = 600;
+    const x = centerX - fieldW / 2;
+    sceneSvg.setAttribute('viewBox', `${x.toFixed(2)} ${fieldY} ${fieldW.toFixed(2)} ${fieldH}`);
+  }
+
+  /* ------------------------------------------------------------- rendering */
+  function updateSliderTrack(input, fill) {
+    input.style.setProperty('--fill', `${fill}%`);
+  }
+
+  function geometryForTarget() {
+    const intensity = clamp(view.intensity, 0, 1);
+    const yawNorm = view.yaw / 60;
+    const tiltNorm = (view.tilt - 30) / 25;
+
+    // The head pivots around the visible brass joint, so the beam follows the
+    // same small arc that the hardware would make.
+    const rot = (view.yaw * 0.075 + (view.tilt - 30) * 0.09) * (Math.PI / 180);
+    const dx = HEAD.cx - HEAD.pivotX;
+    const dy = HEAD.cy - HEAD.pivotY;
+    const hx = HEAD.pivotX + dx * Math.cos(rot) - dy * Math.sin(rot);
+    const hy = HEAD.pivotY + dx * Math.sin(rot) + dy * Math.cos(rot);
+
+    const poolX = clamp(690 + yawNorm * 185 + (30 - view.tilt) * 1.7, 300, 950);
+    const poolY = 758;
+    const spread = 148 + Math.abs(yawNorm) * 12;
+    const topHalf = 68;
+    const topX = hx + 8 + yawNorm * 10;
+    const topY = hy + 48 + tiltNorm * 3;
+
+    const outer = `M${topX - topHalf} ${topY}C${topX - topHalf - 21} ${topY + 136} ${poolX - spread - 34} ${poolY - 108} ${poolX - spread} ${poolY}H${poolX + spread}C${poolX + spread + 34} ${poolY - 108} ${topX + topHalf + 21} ${topY + 136} ${topX + topHalf} ${topY}Z`;
+    const coreHalf = 31;
+    const coreSpread = 70 + Math.abs(yawNorm) * 8;
+    const core = `M${topX - coreHalf} ${topY + 3}C${topX - coreHalf - 10} ${topY + 122} ${poolX - coreSpread - 15} ${poolY - 100} ${poolX - coreSpread} ${poolY}H${poolX + coreSpread}C${poolX + coreSpread + 15} ${poolY - 100} ${topX + coreHalf + 10} ${topY + 122} ${topX + coreHalf} ${topY + 3}Z`;
+
+    return { hx, hy, rot: rot * 180 / Math.PI, poolX, poolY, outer, core, intensity };
+  }
+
+  function render() {
+    const intensity = clamp(view.intensity, 0, 1);
+    const rgb = lampRgbFor(view.cct, intensity);
+    app.style.setProperty('--lamp-rgb', rgb.join(','));
+    app.style.setProperty('--ambient-opacity', String(0.09 + intensity * 0.91));
+
+    const g = geometryForTarget();
+    beamOuter.setAttribute('d', g.outer);
+    beamInner.setAttribute('d', g.core);
+    lightPool.setAttribute('cx', g.poolX.toFixed(1));
+    lightPool.setAttribute('cy', g.poolY.toFixed(1));
+    lightPoolCore.setAttribute('cx', g.poolX.toFixed(1));
+    lightPoolCore.setAttribute('cy', g.poolY.toFixed(1));
+    spillOverlay.setAttribute('cx', String(Math.round(g.poolX + 34)));
+    spillOverlay.setAttribute('cy', '741');
+    spillCore.setAttribute('cx', String(Math.round(g.poolX + 34)));
+    spillCore.setAttribute('cy', '744');
+    aimReticle.setAttribute('transform', `translate(${g.poolX.toFixed(1)} ${g.poolY})`);
+
+    const beamAlpha = Math.pow(intensity, 0.72);
+    beamOuter.setAttribute('opacity', (0.85 * beamAlpha).toFixed(3));
+    beamInner.setAttribute('opacity', (0.7 * beamAlpha).toFixed(3));
+    lightPool.setAttribute('opacity', beamAlpha.toFixed(3));
+    lightPoolCore.setAttribute('opacity', (0.82 * beamAlpha).toFixed(3));
+    spillOverlay.style.opacity = String(0.64 * beamAlpha);
+    spillCore.style.opacity = String(0.56 * beamAlpha);
+    dustGroup.style.opacity = String(0.22 + intensity * 0.6);
+    headBloom.setAttribute('opacity', (0.1 + intensity * 0.44).toFixed(3));
+    lensHalo.setAttribute('opacity', (0.14 + intensity * 0.32).toFixed(3));
+    lensLight.style.opacity = String(0.08 + intensity * 0.92);
+
+    headPose.setAttribute('transform', `rotate(${g.rot.toFixed(3)} ${HEAD.pivotX} ${HEAD.pivotY})`);
+    headHit.setAttribute('transform', `rotate(${g.rot.toFixed(3)} ${HEAD.pivotX} ${HEAD.pivotY})`);
+
+    updateVisualTexts(intensity);
+  }
+
+  function updateVisualTexts(intensity) {
+    if (!state.power) {
+      oledState.textContent = 'STANDBY';
+      oledValue.textContent = 'OFF';
+    } else if (state.preset !== 'manual' && SCENES[state.preset]) {
+      oledState.textContent = SCENES[state.preset].en;
+      oledValue.textContent = `${Math.round(view.cct / 10) * 10}K`;
+    } else {
+      oledState.textContent = 'MANUAL';
+      oledValue.textContent = `${Math.round(view.cct / 10) * 10}K`;
+    }
+    if (intensity < 0.02) {
+      oledState.setAttribute('fill', '#707768');
+      oledValue.setAttribute('fill', '#707768');
+    } else {
+      oledState.removeAttribute('fill');
+      oledValue.removeAttribute('fill');
+    }
+  }
+
+  /* ---------------------------------------------------------------- UI sync */
+  function syncPowerUI() {
+    const on = state.power;
+    app.dataset.power = on ? 'on' : 'off';
+    powerBtn.setAttribute('aria-checked', String(on));
+    powerBtn.setAttribute('aria-label', on ? '关闭灯光电源' : '开启灯光电源');
+    powerLabel.textContent = on ? '已开启' : '已关闭';
+    powerLabel.style.color = on ? '#d2b88e' : '#72776b';
+    syncLabels();
+  }
+
+  function syncLabels() {
+    sceneTag.textContent = currentSceneLabel();
+    sceneTag.classList.toggle('is-warm', state.power);
+    if (!state.power) {
+      stageMode.textContent = '待机 / STANDBY';
+    } else if (state.preset === 'manual') {
+      stageMode.textContent = '自定义光';
+    } else {
+      stageMode.textContent = `${sceneOf(state.preset).label}场景`;
+    }
+    sceneButtons.forEach(button => {
+      button.setAttribute('aria-pressed', String(state.power && state.preset === button.dataset.scene));
+    });
+    updateSceneNote();
+  }
+
+  function updateSceneNote() {
+    if (!state.power) {
+      sceneNote.textContent = SCENE_NOTES.standby;
+      noteReadout.textContent = 'STANDBY';
+      return;
+    }
+    if (state.preset === 'manual') {
+      const tone = state.cct >= 5000 ? '中性白光' : state.cct >= 3500 ? '暖白光' : '暖光';
+      sceneNote.textContent = `自定义${tone}，${state.cct}K / ${state.brightness}% 的输出。亮度和色温都由你决定，灯会记住这一刻。`;
+    } else {
+      sceneNote.textContent = SCENE_NOTES[state.preset] || SCENE_NOTES.manual;
+    }
+    noteReadout.textContent = `${state.cct}K · ${state.brightness}%`;
+  }
+
+  function syncLightControls() {
+    brightnessInput.value = String(state.brightness);
+    cctInput.value = String(state.cct);
+    brightnessOut.innerHTML = `${state.brightness}<small>%</small>`;
+    cctOut.innerHTML = `${state.cct}<small>K</small>`;
+    updateSliderTrack(brightnessInput, state.brightness);
+    updateSliderTrack(cctInput, ((state.cct - 2700) / (6500 - 2700)) * 100);
+    updateSceneNote();
+  }
+
+  function syncPoseControls() {
+    yawInput.value = String(Math.round(state.yaw));
+    tiltInput.value = String(Math.round(state.tilt));
+    yawOut.textContent = signed(state.yaw);
+    tiltOut.textContent = String(Math.round(state.tilt));
+    updateSliderTrack(yawInput, ((state.yaw + 60) / 120) * 100);
+    updateSliderTrack(tiltInput, ((state.tilt - 10) / 45) * 100);
+    yawInput.setAttribute('aria-valuetext', `${Math.round(state.yaw)} 度`);
+    tiltInput.setAttribute('aria-valuetext', `${Math.round(state.tilt)} 度`);
+    if (!state.power) {
+      yawInput.disabled = false;
+      tiltInput.disabled = false;
+    }
+  }
+
+  function syncMotionTag() {
+    if (sim.servoBusy) {
+      motionTag.textContent = '运动中 · 降亮 70%';
+      motionTag.classList.add('is-live');
+      servoDot.classList.add('is-moving');
+      telemetryServo.innerHTML = '运动';
+    } else {
+      motionTag.textContent = '云台已释放';
+      motionTag.classList.remove('is-live');
+      servoDot.classList.remove('is-moving');
+      telemetryServo.innerHTML = '释放';
+    }
+  }
+
+  function syncSceneButtons() {
+    sceneButtons.forEach(button => {
+      button.setAttribute('aria-pressed', String(state.power && state.preset === button.dataset.scene));
+    });
+  }
+
+  function syncAllControls() {
+    syncPowerUI();
+    syncLightControls();
+    syncPoseControls();
+    syncSceneButtons();
+    syncTimerUI();
+    syncMotionTag();
+  }
+
+  /* --------------------------------------------------------------- lighting */
+  function normalizePreset() {
+    state.preset = 'manual';
+    syncLabels();
+    syncSceneButtons();
+  }
+
+  function setPower(on, options = {}) {
+    const next = Boolean(on);
+    if (state.power === next) {
+      syncPowerUI();
+      return;
+    }
+    state.power = next;
+    if (!next && !options.fromTimer) {
+      cancelTimer({ silent: true });
+    }
+    if (!next) {
+      // Any queued gesture should not re-light the lamp.
+      cancelQuickMotion();
+    }
+    syncPowerUI();
+    if (!options.silent) {
+      announce(next ? '灯光已开启' : '灯光已关闭');
+    }
+  }
+
+  function applyScene(key, options = {}) {
+    const scene = SCENES[key];
+    if (!scene) return;
+    state.power = true;
+    state.preset = key;
+    state.brightness = scene.brightness;
+    state.cct = scene.cct;
+    syncPowerUI();
+    syncLightControls();
+    syncSceneButtons();
+    if (!options.silent) {
+      showToast(`已切换至${scene.label}场景 · ${scene.cct}K / ${scene.brightness}%`);
+      announce(`${scene.label}场景，色温 ${scene.cct} 开尔文，亮度 ${scene.brightness}%`);
+    }
+  }
+
+  /* ----------------------------------------------------------------- motion */
+  function scheduleReturnHome() {
+    const token = ++quickMotion.token;
+    quickMotion.returnTimer = window.setTimeout(() => {
+      if (token !== quickMotion.token) return;
+      // Match firmware: every gesture returns to the calibrated home pose.
+      state.yaw = LIMITS.homeYaw;
+      state.tilt = LIMITS.homeTilt;
+      quickMotion.active = false;
+      syncPoseControls();
+    }, 820);
+  }
+
+  function triggerMove(kind) {
+    cancelQuickMotion(false);
+    quickMotion.active = true;
+    quickMotion.kind = kind;
+
+    if (kind === 'home') {
+      state.yaw = LIMITS.homeYaw;
+      state.tilt = LIMITS.homeTilt;
+      quickMotion.active = false;
+      syncPoseControls();
+      announce('云台归位');
+    } else if (kind === 'nod') {
+      state.tilt = LIMITS.tilt[1];
+      syncPoseControls();
+      scheduleReturnHome();
+      announce('灯头点头');
+    } else if (kind === 'left') {
+      state.yaw = -36;
+      syncPoseControls();
+      scheduleReturnHome();
+      announce('灯头向左转');
+    } else if (kind === 'right') {
+      state.yaw = 36;
+      syncPoseControls();
+      scheduleReturnHome();
+      announce('灯头向右转');
+    } else if (kind === 'alert') {
+      state.tilt = LIMITS.tilt[1];
+      state.yaw = 30;
+      syncPoseControls();
+      scheduleReturnHome();
+    }
+
+    moveButtons.forEach(button => {
+      button.classList.toggle('is-active', button.dataset.move === kind && kind !== 'home');
+    });
+    markMotionStarted();
+  }
+
+  function cancelQuickMotion(keepActive = false) {
+    quickMotion.token += 1;
+    window.clearTimeout(quickMotion.returnTimer);
+    quickMotion.returnTimer = 0;
+    if (!keepActive) {
+      quickMotion.active = false;
+      moveButtons.forEach(button => button.classList.remove('is-active'));
+    }
+  }
+
+  function markMotionStarted() {
+    sim.lastMovingAt = performance.now();
+  }
+
+  function updateMotionStatus(now) {
+    const moving = Math.abs(view.yaw - state.yaw) > 0.15 || Math.abs(view.tilt - state.tilt) > 0.15;
+    if (moving) sim.lastMovingAt = now;
+    // The servo is considered attached while it moves, while a queued gesture
+    // holds its pose, and for a short settle window after arrival.
+    const busy = moving || quickMotion.active || now - sim.lastMovingAt < 380;
+    if (busy !== sim.servoBusy) {
+      sim.servoBusy = busy;
+      syncMotionTag();
+      if (!busy) moveButtons.forEach(button => button.classList.remove('is-active'));
+    }
+  }
+
+  function updatePoseTarget(kind, value) {
+    cancelQuickMotion();
+    if (kind === 'yaw') state.yaw = clamp(Number(value), LIMITS.yaw[0], LIMITS.yaw[1]);
+    if (kind === 'tilt') state.tilt = clamp(Number(value), LIMITS.tilt[0], LIMITS.tilt[1]);
+    markMotionStarted();
+    syncPoseControls();
+  }
+
+  function nudgePose(deltaYaw, deltaTilt) {
+    if (deltaYaw) state.yaw = clamp(state.yaw + deltaYaw, LIMITS.yaw[0], LIMITS.yaw[1]);
+    if (deltaTilt) state.tilt = clamp(state.tilt + deltaTilt, LIMITS.tilt[0], LIMITS.tilt[1]);
+    cancelQuickMotion();
+    markMotionStarted();
+    syncPoseControls();
+    announce(`云台姿态，转向 ${Math.round(state.yaw)} 度，俯仰 ${Math.round(state.tilt)} 度`);
+  }
+
+  /* ------------------------------------------------------------------ timer */
+  function syncTimerUI() {
+    const active = state.timer.active;
+    timerChips.forEach(chip => {
+      const selected = Number(chip.dataset.minutes) === state.selectedMinutes;
+      chip.setAttribute('aria-pressed', String(selected));
+      chip.disabled = active;
+    });
+
+    if (active) {
+      const remaining = Math.max(0, state.timer.endsAt - Date.now());
+      const countdown = formatCountdown(remaining);
+      timerTag.textContent = `剩余 ${countdown}`;
+      timerTag.classList.add('is-warm');
+      timerBtn.textContent = '取消';
+      timerBtn.classList.add('is-cancel');
+      metricTimer.textContent = countdown;
+      metricTimerWrap.classList.add('is-warm');
+      const progress = state.timer.totalMs > 0 ? clamp(remaining / state.timer.totalMs, 0, 1) : 0;
+      timerProgress.style.width = `${progress * 100}%`;
+    } else {
+      timerTag.textContent = '未启动';
+      timerTag.classList.remove('is-warm');
+      timerBtn.textContent = '启动';
+      timerBtn.classList.remove('is-cancel');
+      metricTimer.textContent = '--:--';
+      metricTimerWrap.classList.remove('is-warm');
+      timerProgress.style.width = '0%';
+    }
+  }
+
+  function startTimer() {
+    if (state.timer.active) {
+      cancelTimer();
+      return;
+    }
+    const minutes = state.selectedMinutes;
+    if (!state.power) setPower(true, { silent: true });
+    state.timer.active = true;
+    state.timer.totalMs = minutes * 60 * 1000;
+    state.timer.endsAt = Date.now() + state.timer.totalMs;
+    state.timer.minutes = minutes;
+    syncTimerUI();
+    showToast(`定时关闭已启动 · ${minutes} 分钟`);
+    announce(`${minutes} 分钟定时关闭已启动`);
+  }
+
+  function cancelTimer(options = {}) {
+    if (!state.timer.active && options.silent) {
+      syncTimerUI();
+      return;
+    }
+    const wasActive = state.timer.active;
+    state.timer.active = false;
+    state.timer.endsAt = 0;
+    state.timer.totalMs = 0;
+    syncTimerUI();
+    if (wasActive && !options.silent) {
+      showToast('定时关闭已取消');
+      announce('定时关闭已取消');
+    }
+  }
+
+  function checkTimer() {
+    if (!state.timer.active) {
+      syncTimerUI();
+      return;
+    }
+    const remaining = state.timer.endsAt - Date.now();
+    if (remaining <= 0) {
+      state.timer.active = false;
+      syncTimerUI();
+      setPower(false, { fromTimer: true });
+      showToast('定时结束 · 灯光已关闭');
+      announce('定时结束，灯光已关闭');
+      return;
+    }
+    syncTimerUI();
+  }
+
+  /* ------------------------------------------------------------------- reset */
+  function resetAll() {
+    cancelQuickMotion();
+    cancelTimer({ silent: true });
+    state.power = true;
+    state.preset = 'study';
+    state.brightness = SCENES.study.brightness;
+    state.cct = SCENES.study.cct;
+    state.selectedMinutes = 30;
+    state.yaw = LIMITS.homeYaw;
+    state.tilt = LIMITS.homeTilt;
+    state.timer.active = false;
+    sim.temp = 46;
+    sim.watts = 4.9;
+    syncAllControls();
+    resetBtn.classList.remove('is-spinning');
+    // Force a reflow so the icon can rotate again if clicked repeatedly.
+    void resetBtn.offsetWidth;
+    resetBtn.classList.add('is-spinning');
+    window.clearTimeout(resetSpinTimer);
+    resetSpinTimer = window.setTimeout(() => resetBtn.classList.remove('is-spinning'), 650);
+    showToast('已恢复初始样机状态');
+    announce('已恢复初始样机状态');
+  }
+
+  /* ----------------------------------------------------------- metrics + sim */
+  function updateReadout(now) {
+    if (now - lastReadoutFrame < 90) return;
+    lastReadoutFrame = now;
+    const load = state.power ? state.brightness / 100 : 0;
+    const liveCct = Math.round(view.cct / 10) * 10;
+    const illuminance = Math.max(0, Math.round(500 * load * (sim.servoBusy ? 0.7 : 1)));
+    metricCct.textContent = String(liveCct);
+    metricLux.textContent = String(illuminance);
+    metricYaw.textContent = `${signed(view.yaw)}°`;
+    metricTilt.textContent = `${Math.round(view.tilt)}°`;
+    if (!state.timer.active) {
+      metricTimer.textContent = '--:--';
+      metricTimerWrap.classList.remove('is-warm');
+    } else {
+      metricTimer.textContent = formatCountdown(state.timer.endsAt - Date.now());
+      metricTimerWrap.classList.add('is-warm');
+    }
+    telemetryPower.innerHTML = `${sim.watts.toFixed(1)} <span class="unit">W</span>`;
+    telemetryTemp.innerHTML = `${sim.temp.toFixed(1)} <span class="unit">°C</span>`;
+  }
+
+  function updateThermal(now) {
+    const dt = Math.min(0.25, Math.max(0, (now - sim.lastTempAt) / 1000));
+    if (dt <= 0) return;
+    sim.lastTempAt = now;
+    const load = state.power ? state.brightness / 100 : 0;
+    const target = THERMAL.ambient + THERMAL.fullLoad * load;
+    const tau = target > sim.temp ? THERMAL.heatTau : THERMAL.coolTau;
+    sim.temp += (target - sim.temp) * (1 - Math.exp(-dt / tau));
+    sim.watts = state.power ? 0.55 + 4.35 * load + (sim.servoBusy ? 0.62 : 0) : 0.32;
+  }
+
+  /* ------------------------------------------------------------- interaction */
+  function openHeadDrag(event) {
+    if (event.button !== undefined && event.button !== 0) return;
+    cancelQuickMotion();
+    const now = performance.now();
+    draggingHead = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startYaw: state.yaw,
+      startTilt: state.tilt,
+      moved: false,
+      lastInteraction: now
+    };
+    try { headHit.setPointerCapture(event.pointerId); } catch (error) { /* noop */ }
+    stage.classList.add('is-aiming');
+    event.preventDefault();
+  }
+
+  function moveHeadDrag(event) {
+    if (!draggingHead || event.pointerId !== draggingHead.pointerId) return;
+    const dx = event.clientX - draggingHead.startX;
+    const dy = event.clientY - draggingHead.startY;
+    if (!draggingHead.moved && Math.hypot(dx, dy) > 4) draggingHead.moved = true;
+    if (!draggingHead.moved) return;
+    state.yaw = clamp(Math.round(draggingHead.startYaw + dx * 0.24), LIMITS.yaw[0], LIMITS.yaw[1]);
+    state.tilt = clamp(Math.round(draggingHead.startTilt + dy * 0.16), LIMITS.tilt[0], LIMITS.tilt[1]);
+    markMotionStarted();
+    quickMotion.active = false;
+    syncPoseControls();
+  }
+
+  function closeHeadDrag(event) {
+    if (!draggingHead || (event && event.pointerId !== draggingHead.pointerId)) return;
+    const wasMoved = draggingHead.moved;
+    try { headHit.releasePointerCapture(draggingHead.pointerId); } catch (error) { /* noop */ }
+    draggingHead = null;
+    stage.classList.remove('is-aiming');
+    if (!wasMoved) {
+      triggerMove('nod');
+    } else {
+      announce(`云台姿态，转向 ${Math.round(state.yaw)} 度，俯仰 ${Math.round(state.tilt)} 度`);
+    }
+    if (event) event.preventDefault();
+  }
+
+  headHit.addEventListener('pointerdown', openHeadDrag);
+  headHit.addEventListener('pointermove', moveHeadDrag);
+  headHit.addEventListener('pointerup', closeHeadDrag);
+  headHit.addEventListener('pointercancel', closeHeadDrag);
+  headHit.addEventListener('keydown', event => {
+    const step = event.shiftKey ? 5 : 2;
+    switch (event.key) {
+      case 'ArrowLeft':
+        event.preventDefault(); nudgePose(-step, 0); break;
+      case 'ArrowRight':
+        event.preventDefault(); nudgePose(step, 0); break;
+      case 'ArrowUp':
+        event.preventDefault(); nudgePose(0, -step); break;
+      case 'ArrowDown':
+        event.preventDefault(); nudgePose(0, step); break;
+      case 'Enter':
+      case ' ':
+        event.preventDefault(); triggerMove('nod'); break;
+      case 'Home':
+        event.preventDefault(); triggerMove('home'); break;
+      default: break;
+    }
+  });
+
+  baseHit.addEventListener('click', event => {
+    event.preventDefault();
+    setPower(!state.power);
+    showToast(state.power ? '灯光已开启' : '灯光已关闭');
+  });
+  baseHit.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setPower(!state.power);
+      showToast(state.power ? '灯光已开启' : '灯光已关闭');
+    }
+  });
+
+  powerBtn.addEventListener('click', () => {
+    setPower(!state.power);
+  });
+
+  sceneButtons.forEach(button => {
+    button.addEventListener('click', () => applyScene(button.dataset.scene));
+  });
+
+  resetBtn.addEventListener('click', resetAll);
+
+  brightnessInput.addEventListener('input', () => {
+    if (!state.power) setPower(true, { silent: true });
+    state.brightness = clamp(Number(brightnessInput.value), LIMITS.brightness[0], LIMITS.brightness[1]);
+    normalizePreset();
+    syncLightControls();
+  });
+
+  cctInput.addEventListener('input', () => {
+    if (!state.power) setPower(true, { silent: true });
+    state.cct = clamp(Number(cctInput.value), LIMITS.cct[0], LIMITS.cct[1]);
+    normalizePreset();
+    syncLightControls();
+  });
+
+  yawInput.addEventListener('input', () => updatePoseTarget('yaw', yawInput.value));
+  tiltInput.addEventListener('input', () => updatePoseTarget('tilt', tiltInput.value));
+
+  moveButtons.forEach(button => {
+    button.addEventListener('click', () => triggerMove(button.dataset.move));
+  });
+
+  timerChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      if (state.timer.active) return;
+      state.selectedMinutes = Number(chip.dataset.minutes);
+      timerChips.forEach(item => item.setAttribute('aria-pressed', String(item === chip)));
+    });
+  });
+
+  timerBtn.addEventListener('click', startTimer);
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      stage.classList.remove('is-aiming');
+      if (draggingHead) closeHeadDrag();
+    }
+    if (event.key.toLowerCase() === 'r' && !event.metaKey && !event.ctrlKey && event.target.tagName !== 'INPUT') {
+      resetAll();
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      lastFrame = performance.now();
+      sim.lastTempAt = performance.now();
+      fitScene();
+      checkTimer();
+    }
+  });
+
+  /* ---------------------------------------------------------------- animation */
+  function approach(current, target, maxDelta) {
+    if (current < target) return Math.min(current + maxDelta, target);
+    if (current > target) return Math.max(current - maxDelta, target);
+    return current;
+  }
+
+  function tick(now) {
+    const dt = Math.min(0.08, Math.max(0.001, (now - lastFrame) / 1000));
+    lastFrame = now;
+
+    // Servo easing: 75 deg/s roughly matches SERVO_STEP_DEG @ 20 ms.
+    const maxStep = 78 * dt;
+    view.yaw = approach(view.yaw, state.yaw, maxStep);
+    view.tilt = approach(view.tilt, state.tilt, maxStep);
+
+    // Light follows brightness with a short ramp; during motion the firmware
+    // dims to 70% to stay inside the 5V power budget.
+    const targetIntensity = state.power ? (state.brightness / 100) * (sim.servoBusy ? 0.7 : 1) : 0;
+    const lightAlpha = 1 - Math.exp(-dt / 0.16);
+    view.intensity += (targetIntensity - view.intensity) * lightAlpha;
+
+    const cctAlpha = 1 - Math.exp(-dt / 0.22);
+    view.cct += (state.cct - view.cct) * cctAlpha;
+
+    if (Math.abs(view.intensity) < 0.0005 && targetIntensity === 0) view.intensity = 0;
+    if (Math.abs(view.yaw - state.yaw) < 0.02) view.yaw = state.yaw;
+    if (Math.abs(view.tilt - state.tilt) < 0.02) view.tilt = state.tilt;
+    if (Math.abs(view.cct - state.cct) < 0.5) view.cct = state.cct;
+
+    updateMotionStatus(now);
+    updateThermal(now);
+    render();
+    updateReadout(now);
+
+    requestAnimationFrame(tick);
+  }
+
+  /* ------------------------------------------------------------------- boot */
+  function boot() {
+    fitScene();
+    if ('ResizeObserver' in window) {
+      const observer = new ResizeObserver(() => fitScene());
+      observer.observe(stageCanvas);
+    } else {
+      window.addEventListener('resize', fitScene);
+    }
+    window.addEventListener('resize', fitScene);
+
+    // Initialize thermal display, input fills and all labels from one source of truth.
+    syncAllControls();
+    syncPowerUI();
+    syncLightControls();
+    syncPoseControls();
+    syncSceneButtons();
+    view.cct = state.cct;
+    view.yaw = state.yaw;
+    view.tilt = state.tilt;
+    view.intensity = 0;
+    sim.lastTempAt = performance.now();
+    updateReadout(performance.now());
+
+    window.setInterval(checkTimer, 250);
+    requestAnimationFrame(tick);
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
