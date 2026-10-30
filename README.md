@@ -18,10 +18,23 @@ lamp/
 │   ├── 03-技术方案.md             硬件选型、引脚、红外/照明/机械/定时/语音
 │   ├── 04-MVP验证计划.md          三轮验证、指标阈值、测试协议
 │   ├── 05-风险与里程碑.md         风险登记册、决策门、预算
-│   └── 06-面包板点亮验证.md       按键(GPIO4)开灯(GPIO5)最小通路与排错
-├── firmware/                     ESP32-S3 固件骨架（PlatformIO）
+│   ├── 06-面包板点亮验证.md       按键(GPIO4)开灯(GPIO5)最小通路与排错
+│   └── 06-语音AI链路实施手册.md   任务一/二/三：V829 麦克风 → Vosk → DeepSeek
+├── firmware/                     ESP32-S3 固件（Arduino/PlatformIO 与 ESP-IDF 两套）
 │   ├── src/bringup/              面包板 bring-up：只跑按键->灯，不依赖库
-│   └── micropython/              面包板实测固件（板上当前运行的就是这份）
+│   ├── micropython/              面包板实测固件（板上当前运行的就是这份）
+│   ├── idf/lamp_voice/           ESP-IDF 版语音客户端（WiFi + PDM 麦克风 + TCP）
+│   ├── idf/pdm_probe/            ESP-IDF 版 PDM 麦克风探针
+│   └── include/secrets.h.example WiFi 与电脑 IP 模板（复制为 secrets.h）
+├── server/                       局域网语音服务（Vosk ASR + 本地大模型）
+│   ├── voice_server.py           WS 8765：PCM → ASR → DeepSeek → 回复（Arduino 版配套）
+│   ├── lamp_server.py            TCP 8766 + 网页 8080：Vosk → LLM（ESP-IDF 版配套）
+│   ├── ask.py                    终端直接问 DeepSeek（流式）
+│   ├── asr_test.py               用 wav 单独验证 Vosk
+│   ├── test_client.py            假 ESP32：不需要开发板即可验证整条链路
+│   ├── test_client_voice.py      voice_server.py 的 WebSocket 测试客户端
+│   └── models/                   vosk-model-small-cn-0.22（不入库）
+├── web/                          单页演示（模拟灯，浏览器直接打开 index.html）
 └── tools/
     └── mvp_calc.py               工程/商业计算器（BOM、功耗、热、单台经济、IR 存储自检）
 ```
@@ -45,6 +58,35 @@ cd firmware && pio run -e bringup -t upload && pio device monitor -b 115200
 > 手上只有开发板 + HW-483 按键 + HW-479 RGB 模块时，**先跑 `-e bringup`**，
 > 不要直接烧 `lamp_s3`：那份固件的 GPIO4/5 是照明 PWM，按键在 13/14/15，
 > 与面包板接法冲突。步骤与排错见 `docs/06-面包板点亮验证.md`。
+
+### 语音链路（V829 麦克风 → 电脑 ASR → DeepSeek）
+
+```powershell
+# 1) 大脑：安装 Ollama 后拉模型
+ollama pull deepseek-r1:1.5b
+
+# 2) PC 端依赖 + 自检（ASR + 大模型都 ok 才继续）
+cd server
+pip install -r requirements.txt
+python voice_server.py --check
+
+# 3) 不用开发板先验证整条链路
+python voice_server.py            # 终端 A
+python test_client.py             # 终端 B：wav → ASR → DeepSeek
+
+# 4) ESP32：填 WiFi/IP 后烧录，串口执行
+copy firmware\include\secrets.h.example firmware\include\secrets.h   # 再编辑
+mic test 10                       # 任务一：拍手/说话看 RMS 跳动
+voice status                      # 任务三：应显示 ws=up
+voice say 今天适合复习吗           # 跳过麦克风，直接测大脑
+```
+
+完整接线、预期串口输出与排障见 `docs/06-语音AI链路实施手册.md`。
+
+> 仓库里目前有**两套并行的语音实现**：
+> **Arduino/PlatformIO 版**（`firmware/src/pdm_mic.cpp` + `firmware/src/voice_client.cpp` + `server/voice_server.py`，已实机验证）；
+> **ESP-IDF 版**（`firmware/idf/lamp_voice` + `server/lamp_server.py`，编译通过、待上板）。
+> 两者共用 `server/models/` 下的同一份 Vosk 模型，端口不冲突（8765 / 8766+8080）。
 
 ## 关键数字（由 `tools/mvp_calc.py` 计算，非拍脑袋）
 

@@ -5,6 +5,9 @@
 *.elf
 *.map
 
+# 本地凭据（WiFi 密码 / 电脑局域网 IP），从 secrets.h.example 复制
+firmware/include/secrets.h
+
 # Python
 __pycache__/
 *.py[cod]
@@ -21,14 +24,22 @@ Thumbs.db
 .DS_Store
 desktop.ini
 
-# ESP-IDF 构建产物
+# ESP-IDF 构建产物（firmware/idf 下的探针/客户端）
+build/
 firmware/idf/**/build/
 firmware/idf/**/sdkconfig
-build/
+firmware/idf/**/sdkconfig.old
 
-# Vosk 语音识别模型（体积大，走外部下载/存储）
+# 整片 flash 备份（16 MB，含 MicroPython 原厂固件）
+firmware/backup/
+
+# Vosk 语音识别模型（体积大，走外部下载/存储）+ 测试音频
 server/models/
+*.wav
+
+# 服务端调试产物（录制的音频/截图）
+server/debug/
 
 # 探测/临时文件
+_tmp_*.txt
 .dsh-write-probe.txt
-*.wav

@@ -8,6 +8,21 @@
 
 #include <Arduino.h>
 
+// ---- optional local secrets (copy include/secrets.h.example -> secrets.h) ---
+// WiFi credentials and the LAN PC address live here, never in the repo.
+#if defined(__has_include)
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+#endif
+
+#ifndef LAMP_VOICE_SERVER_HOST
+#define LAMP_VOICE_SERVER_HOST "192.168.1.100"
+#endif
+#ifndef LAMP_VOICE_SERVER_PORT
+#define LAMP_VOICE_SERVER_PORT 8765
+#endif
+
 // ---- feature flags (override with build_flags) -----------------------------
 #ifndef LAMP_USE_OLED
 #define LAMP_USE_OLED 0
@@ -15,12 +30,26 @@
 #ifndef LAMP_HAS_SERVOS
 #define LAMP_HAS_SERVOS 1
 #endif
+// V829 PDM microphone + LAN ASR/LLM link (tasks 1-3 of the voice spike).
 #ifndef LAMP_HAS_VOICE
-#define LAMP_HAS_VOICE 0
+#define LAMP_HAS_VOICE 1
 #endif
 
 // ---- pins -----------------------------------------------------------------
+#ifdef LAMP_BOARD_BREADBOARD
+// 面包板模式：HW-483 按键接 GPIO4、HW-479 的 G 通道接 GPIO5。
+// 正式 PCB 的暖白通道正好在 GPIO4，直接烧会"按键踩在输出脚上"，又没反应又危险。
+// 这里把暖白挪到没人用的 GPIO21（面包板上不接），按键回到 GPIO4 —— 不改一根线，
+// 按键和语音就能同时工作。
+constexpr uint8_t PIN_LED_WARM = 21;
+constexpr uint8_t PIN_BTN_LIGHT = 4;
+// INMP441 的 WS(LRCLK) 接在 GPIO18，状态灯让位到 GPIO14
+constexpr uint8_t PIN_STATUS_LED = 14;
+#else
 constexpr uint8_t PIN_LED_WARM = 4;
+constexpr uint8_t PIN_BTN_LIGHT = 14;
+constexpr uint8_t PIN_STATUS_LED = 18;
+#endif
 constexpr uint8_t PIN_LED_COOL = 5;
 constexpr uint8_t PIN_SERVO_TILT = 6;
 constexpr uint8_t PIN_SERVO_YAW = 7;
@@ -30,11 +59,12 @@ constexpr uint8_t PIN_IR_SEND = 10;
 constexpr uint8_t PIN_OLED_SDA = 11;
 constexpr uint8_t PIN_OLED_SCL = 12;
 constexpr uint8_t PIN_BTN_MODE = 13;
-constexpr uint8_t PIN_BTN_LIGHT = 14;
 constexpr uint8_t PIN_BTN_LEARN = 15;
-constexpr uint8_t PIN_VOICE_TX = 16;
-constexpr uint8_t PIN_VOICE_RX = 17;
-constexpr uint8_t PIN_STATUS_LED = 18;
+// INMP441 是标准 I2S 麦克风（不是 PDM）：BCLK -> GPIO16，WS/LRCLK -> GPIO18，SD -> GPIO17。
+// L/R 接 GND 选左声道；旧名 PIN_VOICE_TX/RX 是历史遗留，别按 TX/RX 去接串口。
+constexpr uint8_t PIN_VOICE_TX = 16;  // BCLK
+constexpr uint8_t PIN_VOICE_RX = 17;  // SD (mic -> ESP32)
+constexpr uint8_t PIN_VOICE_WS = 18;  // WS / LRCLK
 
 // ---- LEDC channels (ESP32-C3/S3 low-speed group; one timer per group) ------
 // channels 8 and 9 share timer 4 (both 4 kHz) -> OK
@@ -93,3 +123,22 @@ constexpr const char* IR_DIR = "/ir";
 constexpr const char* LOG_DIR = "/log";
 constexpr size_t LOG_MAX_BYTES = 32 * 1024;
 constexpr bool DEFAULT_QUIET_AT_NIGHT = true;
+
+// ---- voice / microphone ----------------------------------------------------
+// 16 kHz mono s16le is what the Vosk small-cn model on the PC expects.
+constexpr uint32_t MIC_SAMPLE_RATE = 16000;
+constexpr uint16_t MIC_FRAME_SAMPLES = 512;    // 32 ms per frame
+constexpr uint16_t MIC_PREROLL_FRAMES = 4;     // 128 ms kept before the trigger
+// INMP441 在 16 bit 槽里只有几十 LSB（实测说话峰值 ~56），先做数字增益再判断。
+// 增益后的值会同时用于 VAD 和送给 Vosk 的音频，两头都受益。
+constexpr uint16_t MIC_GAIN = 4;
+// 触发阈值 = max(底噪 × 3, 这个下限)。实测静音 RMS≈13，增益后≈200，所以下限取 450。
+constexpr float MIC_VAD_RMS = 450.0f;
+constexpr uint32_t MIC_SILENCE_MS = 700;       // trailing silence ends a phrase
+constexpr uint32_t MIC_MAX_UTTERANCE_MS = 8000;
+// 触发后固定录这么久再整段发送：边录边发在弱网下会把主循环拖死（实测 10 s 只发出 0.16 s 音频）。
+constexpr uint32_t MIC_RECORD_MS = 2000;
+constexpr size_t MIC_RECORD_SAMPLES = MIC_RECORD_MS * MIC_SAMPLE_RATE / 1000;
+constexpr uint32_t MIC_WAIT_REPLY_MS = 45000;  // LLM may think for a while
+constexpr uint32_t MIC_MONITOR_PERIOD_MS = 120;
+constexpr uint16_t MIC_RETRY_MS = 5000;        // re-open the I2S channel
