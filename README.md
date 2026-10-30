@@ -34,7 +34,13 @@ lamp/
 │   ├── test_client.py            假 ESP32：不需要开发板即可验证整条链路
 │   ├── test_client_voice.py      voice_server.py 的 WebSocket 测试客户端
 │   └── models/                   vosk-model-small-cn-0.22（不入库）
-├── web/                          单页演示（模拟灯，浏览器直接打开 index.html）
+├── web/                          LAMP-1 官网（纯静态，浏览器直接打开 index.html）
+│   ├── index.html                概览首页
+│   ├── product.html              产品叙事与交互细节
+│   ├── simulator.html            交互数字样机
+│   ├── technology.html           系统架构、规格与验证边界
+│   └── assets/                   全站样式、脚本与产品渲染素材
+├── .github/workflows/pages.yml   GitHub Pages 自动部署
 └── tools/
     └── mvp_calc.py               工程/商业计算器（BOM、功耗、热、单台经济、IR 存储自检）
 ```
@@ -58,6 +64,19 @@ cd firmware && pio run -e bringup -t upload && pio device monitor -b 115200
 > 手上只有开发板 + HW-483 按键 + HW-479 RGB 模块时，**先跑 `-e bringup`**，
 > 不要直接烧 `lamp_s3`：那份固件的 GPIO4/5 是照明 PWM，按键在 13/14/15，
 > 与面包板接法冲突。步骤与排错见 `docs/06-面包板点亮验证.md`。
+
+### 官网与数字样机
+
+```powershell
+# 无需构建、无需服务器，直接打开静态站点
+start web\index.html
+```
+
+站点包含 **概览 / 产品 / 数字样机 / 技术** 四个页面，共享导航与响应式布局。
+数字样机支持拖动灯头、场景切换、色温/亮度/姿态控制、定时关闭，
+并可从首页光配方直接深链进入，例如 `web/simulator.html?scene=night`。
+
+推送到 `main` 后，`.github/workflows/pages.yml` 会自动将 `web/` 发布到 GitHub Pages。
 
 ### 语音链路（V829 麦克风 → 电脑 ASR → DeepSeek）
 
