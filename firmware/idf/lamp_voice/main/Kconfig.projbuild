@@ -1,0 +1,19 @@
+menu "LAMP voice link"
+
+    config LAMP_WIFI_SSID
+        string "WiFi SSID (leave empty to scan and list networks)"
+        default ""
+
+    config LAMP_WIFI_PASS
+        string "WiFi password"
+        default ""
+
+    config LAMP_SERVER_HOST
+        string "PC server IPv4"
+        default "10.1.41.14"
+
+    config LAMP_SERVER_PORT
+        int "PC server TCP port"
+        default 8766
+
+endmenu
